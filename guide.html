@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LTs Workshop Queue — Operator Guide</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#272c38;
+    --text:#e8ebf2; --muted:#8b93a7; --accent:#4f8cff; --accent2:#2b6bff;
+    --pri:#ffb020; --pri-bg:#3a2c0c; --done:#25c26e; --danger:#ff5d5d;
+    --pink:#ff8bc4; --pink-bg:#3a1428;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.55}
+  a{color:var(--accent)}
+  header.top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#141824,#0f1115);
+    border-bottom:1px solid var(--line);padding:16px 20px}
+  header.top .row{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header.top h1{font-size:19px;margin:0;letter-spacing:.2px}
+  .boxmark{display:inline-block;background:var(--pink-bg);border:1px solid var(--pink);border-radius:8px;
+    padding:2px 8px;font-size:14px;margin-right:6px}
+  .badges-top{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .tb{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px 80px;display:flex;gap:28px}
+  nav.toc{position:sticky;top:82px;align-self:flex-start;flex:0 0 210px;padding-top:26px;font-size:13.5px}
+  nav.toc ol{list-style:none;margin:0;padding:0}
+  nav.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 10px;border-left:2px solid transparent;border-radius:0 6px 6px 0}
+  nav.toc a:hover{color:var(--text);background:var(--panel);border-left-color:var(--accent)}
+  main{flex:1;min-width:0;padding-top:26px}
+  section{margin:0 0 34px;scroll-margin-top:90px}
+  h2{font-size:21px;margin:0 0 6px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px}
+  h2 .num{font-size:13px;font-weight:800;color:var(--accent);background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:2px 8px;min-width:26px;text-align:center}
+  h3{font-size:15.5px;margin:18px 0 6px;color:#dfe4f0}
+  p{margin:8px 0}
+  .lead{color:var(--muted);font-size:14.5px}
+  ul,ol.steps{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12.5px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  kbd{background:#0b0d12;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:2px 8px;
+    font-size:12px;font-weight:700}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px 18px;margin:12px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:820px){.grid2{grid-template-columns:1fr}}
+  .call{border-radius:11px;padding:12px 15px;margin:12px 0;font-size:13.8px;border:1px solid var(--line);background:var(--panel)}
+  .call b{color:var(--text)}
+  .call.tip{border-color:#1f5138;background:#0f2419}
+  .call.warn{border-color:#5a2a2a;background:#241414;color:#ffd7d7}
+  .call.key{border-color:#24405f;background:#122033}
+  .call .lbl{display:block;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;margin-bottom:3px}
+  .call.tip .lbl{color:var(--done)} .call.warn .lbl{color:var(--danger)} .call.key .lbl{color:#8fc3ff}
+  .badge{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.4px;
+    white-space:nowrap;vertical-align:middle}
+  .b-pri{background:var(--pri);color:#2a1e00}
+  .b-multi{background:#31384a;color:#cdd4e4}
+  .b-reorder{background:var(--done);color:#04180d}
+  .b-back{background:#12303a;color:#7fdce8}
+  .b-same{background:#4a2c00;color:#ffcf87;border:1px solid var(--pri)}
+  .b-cancel{background:var(--danger);color:#fff}
+  .b-hold{background:#3a2c0c;color:var(--pri);border:1px solid var(--pri)}
+  .b-id{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:700}
+  table.badges{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  table.badges th,table.badges td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.badges th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  table.badges td:first-child{white-space:nowrap;width:1%}
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0;font-size:13px}
+  .mock .mrow{display:flex;align-items:center;gap:12px;padding:11px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .mock .mrow:last-child{border-bottom:none}
+  .mock .mrow.pri{background:linear-gradient(90deg,var(--pri-bg),var(--panel));border-left:3px solid var(--pri)}
+  .mock .pos{font-weight:800;font-size:17px;width:26px;text-align:center;color:var(--muted);font-variant-numeric:tabular-nums}
+  .mock .pri .pos{color:var(--pri)}
+  .mock .nm{font-weight:700;flex:1;min-width:0}
+  .mock .nm .sub{display:block;font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .mock .money{font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .mock .btn{font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;background:var(--done);color:#04180d}
+  .mock .bump{font-size:11px;font-weight:700;padding:6px 9px;border-radius:8px;background:transparent;border:1px solid var(--line);color:var(--accent)}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 9px;border-radius:7px;border:1px solid var(--line);
+    background:var(--panel2);vertical-align:middle}
+  .pill.go{background:var(--done);color:#04180d;border-color:var(--done)}
+  .pill.end{background:#c23b3b;color:#fff;border-color:#c23b3b}
+  .pill.ok{background:var(--done);color:#04180d;border-color:var(--done)}
+  .rule{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+  .rule:last-child{border-bottom:none}
+  .rule .n{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent2);color:#fff;font-weight:800;
+    display:flex;align-items:center;justify-content:center;font-size:13px}
+  .fix{margin:10px 0;padding:10px 14px;border-left:3px solid var(--accent);background:var(--panel)}
+  .fix b{color:#dfe4f0}
+  footer{max-width:1080px;margin:0 auto;padding:24px 20px 60px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line)}
+  .kchips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .kchip{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:12.5px}
+  .kchip b{color:var(--text)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="row">
+    <h1><span class="boxmark">📦</span>LTs Workshop Queue — Operator Guide</h1>
+    <div class="badges-top">
+      <span class="tb">TikTok Shop</span>
+      <span class="tb">Eastern time (EST/EDT)</span>
+      <span class="tb">Session-based</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc">
+    <ol>
+      <li><a href="#what">1 · What it is</a></li>
+      <li><a href="#in">2 · Getting in</a></li>
+      <li><a href="#golive">3 · Going live</a></li>
+      <li><a href="#board">4 · Reading the board</a></li>
+      <li><a href="#flags">5 · Flags &amp; badges</a></li>
+      <li><a href="#fulfill">6 · The fulfill loop</a></li>
+      <li><a href="#buttons">7 · Action buttons</a></li>
+      <li><a href="#expand">8 · Expanded order view</a></li>
+      <li><a href="#box">9 · The LTs Box</a></li>
+      <li><a href="#clips">10 · Stream Clips</a></li>
+      <li><a href="#find">11 · Paging &amp; search</a></li>
+      <li><a href="#discord">12 · Discord &amp; mods</a></li>
+      <li><a href="#wrap">13 · Wrapping up</a></li>
+      <li><a href="#rules">14 · Golden rules</a></li>
+      <li><a href="#fixes">15 · Quick fixes</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <section id="what">
+    <h2><span class="num">1</span> What it is</h2>
+    <p class="lead">The LTs Workshop Queue is the running order-of-service board for your TikTok Shop lives. It pulls paid orders straight from the <b>TikTok Shop Order API</b> while you're live, groups and prioritizes them by your rules, and shows a self-updating feed on three surfaces at once.</p>
+    <div class="grid2">
+      <div class="card"><h3>Three surfaces</h3>
+        <ul>
+          <li><b>Admin panel</b> — where you pack from. Full detail, all controls.</li>
+          <li><b>Public page</b> — what buyers watch. Position, username and a PRIORITY tag only; no totals or personal info.</li>
+          <li><b>Discord</b> — an auto-updating mirror of the queue plus the LTs Box tally, with a few mod commands.</li>
+        </ul>
+      </div>
+      <div class="card"><h3>The core ideas</h3>
+        <ul>
+          <li><b>No typing.</b> Orders ingest automatically from TikTok while you're live.</li>
+          <li><b>One slot per buyer.</b> A buyer who orders again before you fulfill them merges into their existing slot instead of getting re-queued.</li>
+          <li><b>Item-driven priority.</b> An order containing a configured priority item is staggered up the queue — woven in every other slot ahead of regulars, without overtaking whoever's at the top.</li>
+          <li><b>Session-based.</b> Nothing ingests until you hit <span class="pill go">● Go Live</span>.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="call key"><span class="lbl">Timezone</span>Everything time-stamped in this queue is in <b>Eastern time (EST/EDT)</b>. Where you type a time (Stream Clips), you type <b>your own local clock</b> and the app records and displays it in Eastern for you.</div>
+  </section>
+
+  <section id="in">
+    <h2><span class="num">2</span> Getting in</h2>
+    <ol class="steps">
+      <li><b>The operator guide &amp; sandbox</b> (this page and <code>/sandbox</code>) sit behind a shared guide password. Anyone helping out can be given that without handing over the admin login.</li>
+      <li><b>The admin panel</b> lives at a secret, unlinked URL and is protected by its own password. If two-factor is switched on, you'll also enter a 6-digit code from your authenticator (or a one-time backup code).</li>
+      <li>Once you're in the panel, your login lasts about 30 days on that device, so you normally sign in once and stay in.</li>
+    </ol>
+    <div class="call tip"><span class="lbl">Tip</span>Practice everything in this guide risk-free on the <a href="/sandbox">interactive sandbox</a> — it's a full copy of the board with make-believe orders. Nothing there is real; refresh to start over.</div>
+  </section>
+
+  <section id="golive">
+    <h2><span class="num">3</span> Going live</h2>
+    <p>The board does nothing until you start a session. When you're ready to sell, hit <span class="pill go">● Go Live</span> at the top left of the panel and confirm.</p>
+    <h3>What Go Live does, in order</h3>
+    <ul>
+      <li>Archives anything left over from a previous stream that wasn't properly ended (so nothing is lost), then <b>clears the board</b> for a fresh session.</li>
+      <li><b>Starts accepting orders.</b> From this moment TikTok orders flow in automatically (polled every few seconds).</li>
+      <li><b>Auto-starts the Stream Clips timer</b> at that exact moment and begins a <b>fresh clip log</b> for this stream. You can still fine-tune the start time by hand later.</li>
+      <li><b>Runs a pre-live backfill.</b> It quietly pulls in any orders placed in roughly the <b>15 minutes before</b> you went live, so a late start doesn't miss early buyers. This runs in the background — going live stays instant, and the orders stream in as they're fetched.</li>
+    </ul>
+    <div class="call tip"><span class="lbl">Why the backfill matters</span>People start buying the second you go on. If you were a few minutes late hitting <b>Go Live</b>, those orders still land in the queue. The backfill is <b>idempotent</b> — it only adds orders that aren't already there and are still unshipped, so it can <b>never</b> create duplicates.</div>
+    <div class="call warn"><span class="lbl">Heads up</span>While you're <b>offline</b> (before Go Live / after End Live) incoming orders are <b>ignored</b>, not queued. Only orders placed during a live session — plus that 15-minute pre-live window — enter the board.</div>
+  </section>
+
+  <section id="board">
+    <h2><span class="num">4</span> Reading the board</h2>
+    <p>The top strip shows the session state and the running numbers:</p>
+    <div class="kchips">
+      <span class="kchip"><b>LIVE / OFFLINE</b> badge next to the title</span>
+      <span class="kchip"><b>Live feed</b> dot — green means the real-time connection is healthy</span>
+      <span class="kchip"><b>In queue</b> · slots waiting</span>
+      <span class="kchip"><b>Priority</b> · how many are priority</span>
+      <span class="kchip"><b>Queue value</b> · $ still to pack</span>
+      <span class="kchip"><b>Fulfilled</b> · done this stream</span>
+      <span class="kchip"><b>Avg in queue</b> / <b>Avg at top</b> · timing</span>
+    </div>
+    <p>Below that is the <b>Active queue — top is next</b>. Priority orders are <b>staggered</b> into the line, not stacked in a block at the top, so regular buyers keep moving up. The board is always sorted so the very top row is whoever you pack next:</p>
+    <ol class="steps">
+      <li>A <b>manually bumped</b> slot (you forced it up) always sits at the very top.</li>
+      <li>Whoever is <b>currently at the top is never overtaken</b> — a new priority order can't knock the person you're packing off #1.</li>
+      <li>Below the top, <b>priority and regular orders alternate</b> by time received: priority, regular, priority, regular… Slots only sit back-to-back when there's nothing of the other kind to stagger against (e.g. several priority orders and no regulars waiting).</li>
+    </ol>
+    <div class="mock">
+      <div class="mrow pri"><span class="pos">1</span><span class="nm">holo_hunter <span class="badge b-pri">PRIORITY</span> <span class="badge b-multi">3 orders</span> <span class="badge b-reorder">＋ ADDED MORE ×2</span><span class="sub">Alien Tier Mystery Bag, +2 bundles · #…04471921</span></span><span class="money">$255</span><span class="bump">▲</span><span class="btn">✓ Fulfilled</span></div>
+      <div class="mrow"><span class="pos">2</span><span class="nm">tjcardsfan <span class="badge b-same">⚠ SAME NAME</span> <span class="badge b-id">id …a2f1</span><span class="sub">1× Black Bolt bundle · #…04471790</span></span><span class="money">$20</span><span class="bump">▲</span><span class="btn">✓ Fulfilled</span></div>
+      <div class="mrow pri"><span class="pos">3</span><span class="nm">elite_trainer <span class="badge b-pri">PRIORITY</span><span class="sub">God Tier Mystery Bag · #…04471888</span></span><span class="money">$85</span><span class="bump">▲</span><span class="btn">✓ Fulfilled</span></div>
+      <div class="mrow"><span class="pos">4</span><span class="nm">ripqueen <span class="badge b-cancel">⚠ CANCEL REQ</span><span class="sub">1× 151 Booster Pack · #…04471655</span></span><span class="money">$22</span><span class="bump">▲</span><span class="btn">✓ Fulfilled</span></div>
+    </div>
+    <p class="lead">Below the active queue are two collapsible sections: <b>Fulfilled this stream</b> and <b>Cancelled this stream</b>, each with an Undo/Restore control on every row.</p>
+  </section>
+
+  <section id="flags">
+    <h2><span class="num">5</span> Flags &amp; badges — and what to do</h2>
+    <p>Badges sit on the buyer's name row. Here's every one and the action it's asking for:</p>
+    <table class="badges">
+      <tr><th>Badge</th><th>Means</th><th>Do this</th></tr>
+      <tr>
+        <td><span class="badge b-pri">PRIORITY</span></td>
+        <td>The slot contains a configured priority item, so it is staggered up the queue.</td>
+        <td>Priority orders are woven in every other slot rather than stacked — they move up faster than regulars but never bump whoever's already at the top.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-multi">N orders</span></td>
+        <td>This buyer has N separate orders merged into one slot (items and total combined).</td>
+        <td>Pack them together as one bag. Expand the row to see each order broken out.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-reorder">＋ ADDED MORE ×N</span></td>
+        <td>This buyer ordered <b>again while already at #1</b> — their bag is probably being packed right now. The ×N is how many times they've added since reaching the top.</td>
+        <td><b>Add the new item(s) to the bag in progress.</b> Don't seal it assuming the slot was done. Only flashes while they are currently #1.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-back">🔁 N earlier today</span></td>
+        <td>This buyer already had order(s) fulfilled earlier this same stream.</td>
+        <td>Decide whether this should be combined into one shipment with what you already packed.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-same">⚠ SAME NAME</span> <span class="badge b-id">id …a2f1</span></td>
+        <td>A different buyer in the queue has the <b>exact same display name</b>. These are different people (the queue tells them apart by buyer id, not name).</td>
+        <td>Use the <b>id …last4</b> tag and the order numbers to keep the two straight. Don't merge them.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-cancel">⚠ CANCEL REQ</span></td>
+        <td>A genuine cancellation was requested — the whole order, or a specific item.</td>
+        <td><b>Expand the row</b> to see exactly which item is flagged (it's highlighted). <b>Do not ship or seal</b> until the cancelled item is pulled.</td>
+      </tr>
+      <tr>
+        <td><span class="badge b-hold">⏸ ON HOLD — verify</span></td>
+        <td>TikTok put the order On Hold for some other reason — address check, order combine/split, a sample/exchange, or a pending review. This is <b>not</b> a cancellation.</td>
+        <td>Just verify before shipping. (Suppressed automatically if a real CANCEL REQ is already flagged.)</td>
+      </tr>
+    </table>
+  </section>
+
+  <section id="fulfill">
+    <h2><span class="num">6</span> The fulfill loop</h2>
+    <p>Working the board is a simple rhythm — always start from the top:</p>
+    <ol class="steps">
+      <li>Look at <b>row 1</b>. Read its badges (priority, added-more, cancel, same-name).</li>
+      <li>Expand it if you need the full item list (see <a href="#expand">expanded view</a>), print a <span class="pill">🏷 Label</span> if you use them.</li>
+      <li>Pack the bag. If it's a multi-order slot, everything in that slot goes together.</li>
+      <li>Hit <span class="pill ok">✓ Fulfilled</span>. That closes the <b>whole buyer batch</b> and moves it to Fulfilled this stream.</li>
+      <li>The next slot slides up to #1. Repeat.</li>
+    </ol>
+    <div class="call tip"><span class="lbl">Slot merging, in practice</span>If a buyer you already fulfilled orders again later, a <b>fresh slot</b> opens for them. If they order again <b>before</b> you fulfill them, it merges into the same slot — that's the <span class="badge b-multi">N orders</span> badge, and, if they were already at the top, the <span class="badge b-reorder">＋ ADDED MORE</span> flash.</div>
+  </section>
+
+  <section id="buttons">
+    <h2><span class="num">7</span> Action buttons</h2>
+    <div class="grid2">
+      <div class="card"><h3>On each slot</h3>
+        <ul>
+          <li><span class="pill ok">✓ Fulfilled</span> — closes the whole buyer batch and files it under Fulfilled.</li>
+          <li><span class="pill">▲</span> <b>Bump</b> — force this slot to the very top. Only one slot can be bumped at a time; bumping a new one releases the last.</li>
+          <li><span class="pill">✕</span> <b>Remove</b> — take the slot off the board <b>without</b> fulfilling it (e.g. the buyer cancelled). It moves to Cancelled this stream.</li>
+          <li><span class="pill">▸</span> <b>Expand</b> — show/hide every item in the slot.</li>
+          <li><span class="pill">🏷 Label</span> — print a 2.25×1.25 shipping label with the username and order numbers.</li>
+        </ul>
+      </div>
+      <div class="card"><h3>Up top / in sections</h3>
+        <ul>
+          <li><span class="pill go">● Go Live</span> / <span class="pill end">■ End Live</span> — start or stop the session.</li>
+          <li><span class="pill">⭐ Priority items</span> — edit the list of phrases that trigger priority (one per line, matched inside the item name).</li>
+          <li><span class="pill">Reset</span> — clear the active board. Use with care.</li>
+          <li><span class="pill">↩ Undo / Restore</span> — on any Fulfilled or Cancelled row, put the slot back on the board (only if that buyer has no newer open slot).</li>
+          <li><span class="pill">⬇ Export CSV</span> — download the stream's orders (see <a href="#wrap">wrapping up</a>).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="expand">
+    <h2><span class="num">8</span> Expanded order view</h2>
+    <p>Tap the <span class="pill">▸</span> caret on a slot to open its full breakdown. For a multi-order slot it groups items <b>by order number</b>, so you can see exactly what came in on each order.</p>
+    <div class="card">
+      <div style="color:var(--muted);font-size:11px;font-weight:700">#…04471921</div>
+      <div>1× Alien Tier Mystery Bag &nbsp; · &nbsp; 2× White Flare bundle</div>
+      <div style="color:var(--done);font-size:11px;font-weight:800;letter-spacing:.4px;margin:10px 0 3px">＋ ADDED SINCE TOP OF QUEUE</div>
+      <div style="color:var(--muted);font-size:11px;font-weight:700">#…04471999</div>
+      <div>1× Prismatic bundle</div>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:10px;border-top:1px solid var(--line);padding-top:7px">Full order numbers: #576…04471921 &nbsp; #576…04471999</div>
+    </div>
+    <ul>
+      <li>Anything the buyer added <b>after</b> they hit #1 is pulled out under a green <b>＋ Added since top of queue</b> header — those are the items most likely to get missed on a bag you already started.</li>
+      <li>If an item has a cancellation on it, it's highlighted right here with a <b>CANCEL REQUESTED</b> marker so you pull it before sealing.</li>
+      <li>The <b>full</b> order numbers are printed at the bottom (the name row only shows the short tail).</li>
+    </ul>
+  </section>
+
+  <section id="box">
+    <h2><span class="num">9</span> The LTs Box 📦</h2>
+    <p>The <b>LTs Box</b> is LTs Workshop's per-variant sales counter. Each tracked variant gets a running unit total that <b>persists across streams</b> — it keeps climbing live after live until you reset it (for example when the bank is "hit").</p>
+    <h3>How it counts</h3>
+    <ul>
+      <li>Units are tallied automatically when a slot containing a tracked variant <b>reaches the top</b> of the queue.</li>
+      <li>Matching is on the item text — a variant needs its variant phrase (and its product phrase, if one is set) to appear in the item name.</li>
+      <li>The counts are cumulative running totals, so they're <b>not</b> cleared by Go Live or End Live.</li>
+    </ul>
+    <h3>Adjusting a counter</h3>
+    <ul>
+      <li>You can manually set or reset any counter from the admin panel.</li>
+      <li>Every manual change is written to an <b>audit log</b> with the previous value, so a mistaken edit or reset is always recoverable.</li>
+    </ul>
+    <div class="call key"><span class="lbl">Where it shows</span>The LTs Box tally appears on the <b>admin panel</b>, on the <b>public page</b> (label + count only), and as its own pinned <b>LTs Box Tracker</b> message in Discord.</div>
+  </section>
+
+  <section id="clips">
+    <h2><span class="num">10</span> Stream Clips</h2>
+    <p>Stream Clips is a timestamp tool for your video editor. During the stream you flag moments worth clipping with one tap, and the app hands the editor a clean, copyable list.</p>
+    <h3>The timer</h3>
+    <ul>
+      <li>The clip timer <b>auto-starts the moment you hit Go Live</b>, and a fresh clip log begins for that stream.</li>
+      <li>When you hit <b>End Live</b> the running timer <b>freezes</b> — but the start time and every clip are <b>kept</b>, so the list stays copyable for the editor afterward.</li>
+      <li>You only need <span class="pill">🕐 Set start time</span> if you want to correct the auto-set start.</li>
+    </ul>
+    <h3>Times are typed local, recorded Eastern</h3>
+    <div class="call key"><span class="lbl">Important</span>You <b>type the start time and each clip time in your own local clock</b> — whatever time you're looking at. The app <b>records and displays it in Eastern (ET)</b> for the editor. Elapsed times are the same in any timezone, so they always line up with the recording.</div>
+    <h3>Marking &amp; editing clips</h3>
+    <ul>
+      <li>Hit <span class="pill">✂ Time Clip</span> to drop a clip at the current moment (the button unlocks once a start time is set).</li>
+      <li>Each clip row is fully editable: its <b>clock time</b> (type in your local time), its <b>elapsed</b> value (<code>h:mm:ss</code> since stream start), and a free-text <b>note</b>. Editing one keeps the other in sync.</li>
+      <li>Use <span class="pill">⧉ Copy list</span> to grab the whole list for the editor, or <span class="pill">Clear all</span> to wipe it.</li>
+    </ul>
+  </section>
+
+  <section id="find">
+    <h2><span class="num">11</span> Paging &amp; search</h2>
+    <div class="grid2">
+      <div class="card"><h3>Page size</h3>
+        <p>On a big live the active queue can get long. The <b>Show N per page</b> dropdown (10 / 25 / 50 / 100) controls how many slots render at once, with pager controls below. Your choice is remembered on that device.</p>
+      </div>
+      <div class="card"><h3>Order-# search</h3>
+        <p>The search box filters by <b>buyer name or order number</b> — full number or just the last few digits. Handy when a buyer reads out their order number in chat and you need to find their slot fast.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="discord">
+    <h2><span class="num">12</span> Discord &amp; mod commands</h2>
+    <p>When Discord is enabled, the bot keeps a single auto-updating <b>live queue</b> message in the channel (position, username and a ⭐/🔺 marker only — no totals or personal info, matching the public page), plus a separate pinned <b>LTs Box Tracker</b> message.</p>
+    <h3>Mod commands</h3>
+    <ul>
+      <li><code>/queue</code> — refresh / re-show the live queue message.</li>
+      <li><code>/fulfill [buyer]</code> — mark the top slot (or a named buyer) fulfilled without opening the web app.</li>
+      <li><code>/bump &lt;buyer&gt;</code> — bump a named buyer to the top.</li>
+    </ul>
+    <div class="call tip"><span class="lbl">Note</span>The web dashboard is always the primary control surface — Discord mirrors it so mods and buyers can follow along and mods can help from their phone.</div>
+  </section>
+
+  <section id="wrap">
+    <h2><span class="num">13</span> Wrapping up — End Live</h2>
+    <p>When the stream is over, hit <span class="pill end">■ End Live</span> and confirm. This:</p>
+    <ul>
+      <li>Archives the <b>entire stream</b> — fulfilled, cancelled, <b>and anything still unfulfilled</b> — to <b>Past streams</b>, so nothing is silently lost.</li>
+      <li>Clears the board and <b>stops new orders</b> from entering.</li>
+      <li><b>Freezes</b> the Stream Clips timer (start time and clips are kept and stay copyable).</li>
+    </ul>
+    <p>Afterward you can review or export any past stream:</p>
+    <ul>
+      <li><span class="pill">🗂 Past streams ↗</span> keeps the last handful of streams with their counts and value.</li>
+      <li><span class="pill">⬇ Export CSV</span> downloads a spreadsheet — a summary by buyer, every fulfilled order, plus the cancelled and any unfulfilled orders — for shipping and reconciliation.</li>
+    </ul>
+    <div class="call warn"><span class="lbl">Don't forget</span>Always <b>End Live</b> when you're done. If you leave a session open, the next Go Live will archive the leftovers for you — but ending cleanly keeps your Past streams and averages accurate.</div>
+  </section>
+
+  <section id="rules">
+    <h2><span class="num">14</span> Golden rules</h2>
+    <div class="card">
+      <div class="rule"><span class="n">1</span><div><b>Always pack from the top down.</b> Row 1 is always the next bag. Trust the sort.</div></div>
+      <div class="rule"><span class="n">2</span><div><b>Go Live before you sell, End Live when you're done.</b> Offline = orders are ignored.</div></div>
+      <div class="rule"><span class="n">3</span><div><b>Red <span class="badge b-cancel">⚠ CANCEL REQ</span> = stop.</b> Expand, pull the flagged item, and never seal until it's handled.</div></div>
+      <div class="rule"><span class="n">4</span><div><b>Green <span class="badge b-reorder">＋ ADDED MORE</span> = add to the bag in progress.</b> The buyer bought again while at #1.</div></div>
+      <div class="rule"><span class="n">5</span><div><b>Same name ≠ same person.</b> Use the <span class="badge b-id">id …last4</span> tag and order numbers to tell them apart.</div></div>
+      <div class="rule"><span class="n">6</span><div><b>Type clip times in your local clock.</b> The app records them in Eastern for the editor.</div></div>
+      <div class="rule"><span class="n">7</span><div><b>The LTs Box persists.</b> Don't reset a counter unless the bank is actually hit.</div></div>
+    </div>
+  </section>
+
+  <section id="fixes">
+    <h2><span class="num">15</span> Quick fixes</h2>
+    <div class="fix"><b>Orders aren't coming in.</b> Check the LIVE badge — if it says OFFLINE, hit <span class="pill go">Go Live</span>. If it's live, check the green <b>Live feed</b> dot; a dropped feed reconnects on its own, and refreshing the page pulls the latest state.</div>
+    <div class="fix"><b>I started the queue late and missed early orders.</b> The pre-live backfill already grabs the last ~15 minutes automatically on Go Live. It's idempotent, so it never duplicates what's there.</div>
+    <div class="fix"><b>I fulfilled the wrong slot.</b> Open <b>Fulfilled this stream</b> and hit <span class="pill">↩ Undo</span> on that row — it returns to the board (as long as the buyer has no newer open slot).</div>
+    <div class="fix"><b>A buyer added more after I started their bag.</b> Look for the <span class="badge b-reorder">＋ ADDED MORE</span> flash on #1 and expand the row — the new items sit under <b>Added since top of queue</b>.</div>
+    <div class="fix"><b>Two buyers have the same name.</b> That's the <span class="badge b-same">⚠ SAME NAME</span> flag. Match on the <span class="badge b-id">id …last4</span> tag and the order number, not the name.</div>
+    <div class="fix"><b>The Time Clip button is greyed out.</b> Set a stream start time first (it's normally auto-set at Go Live) — the button unlocks once a start exists.</div>
+    <div class="fix"><b>A LTs Box number looks wrong.</b> You can set or reset it manually in the panel; every change is logged with the old value, so nothing is lost.</div>
+    <div class="call tip"><span class="lbl">Still stuck?</span>Nothing you click can lose data — the board is saved continuously and every ingest is idempotent, so refreshing is always safe. Practice the whole flow on the <a href="/sandbox">sandbox</a> whenever you like.</div>
+  </section>
+
+  </main>
+</div>
+
+<footer>
+  <b>LTs Workshop Queue</b> · TikTok Shop · Eastern time (EST/EDT) · session-based operator guide. Practice on the <a href="/sandbox">interactive sandbox</a>.
+</footer>
+</body>
+</html>

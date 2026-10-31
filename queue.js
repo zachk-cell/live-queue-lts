@@ -1,0 +1,903 @@
+// Core queue engine.
+//
+// Behaviour (per seller's rules):
+//  - Orders are grouped into one SLOT per buyer while that buyer still has an
+//    unfulfilled slot. A buyer who orders again before being fulfilled is
+//    merged into their existing slot (items + total combined), NOT re-queued.
+//    Once a slot is fulfilled, a later order from that buyer opens a fresh slot.
+//  - PRIORITY is item-driven: if a slot contains any configured "priority item",
+//    it is STAGGERED up the queue rather than stacked. Priority never overtakes
+//    whoever is currently at the top; below that, priority and regular slots
+//    alternate by time received (priority, regular, priority, regular …), so
+//    regular buyers keep moving up. Slots only sit back-to-back when there's
+//    nothing of the other kind to stagger against.
+//  - A slot can also be manually bumped to the very top.
+//  - "Mark fulfilled" closes a slot (the whole buyer batch).
+//  - State persists to disk so a crash/restart mid-live never loses the queue.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { EventEmitter } from 'node:events';
+
+const DATA_DIR = path.resolve(process.cwd(), 'data');
+const STATE_FILE = path.join(DATA_DIR, 'queue-state.json');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
+const MAX_HISTORY = 5; // keep the last N streams for the admin history view
+
+/**
+ * Order record:
+ * {
+ *   id, buyerId, buyer,
+ *   items: [{ name, qty }], total, createdAt,
+ *   status: 'queued'|'fulfilled',
+ *   batchKey,            // slot this order belongs to
+ *   hasPriority          // does this order contain a priority item
+ * }
+ */
+
+export class QueueEngine extends EventEmitter {
+  constructor() {
+    super();
+    this.orders = new Map(); // orderId -> order
+    this.openBatch = new Map(); // buyerId -> current open batchKey (or absent)
+    this.batchCounter = 0;
+    this.priorityItems = []; // array of lowercased substrings that trigger priority
+    this.trackedVariants = []; // [{ id, label, product, variant }] — per-variant sales counters
+    this.variantCounts = {}; // { [variantId]: number } — units counted when a slot hits the top
+    this.variantLog = []; // audit trail of manual counter edits/resets (most recent first)
+    this.live = false; // when false, incoming orders are ignored (not queued)
+    this.sessionStartedAt = null; // when the current live started
+    this.history = []; // archived past streams (most recent first)
+    // Stream clip log (editor aid): a manually-set stream start time and a running
+    // list of clip marks. Independent of the queue — purely a timestamp tool so
+    // moments worth clipping can be flagged with one click for the video editor.
+    this.streamStartAt = null; // ms epoch of the stream start (auto-set at Go Live; manually editable)
+    this.streamEndAt = null;   // ms epoch the stream went offline — freezes the running timer
+    this.clips = [];           // [{ id, at (ms epoch), note }]
+    this.clipCounter = 0;
+    this._ensureDataDir();
+    this._load();
+    this._seedFromEnv();
+  }
+
+  _ensureDataDir() {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+
+  _load() {
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+        this.priorityItems = (cfg.priorityItems || []).map((s) => s.toLowerCase());
+        this.trackedVariants = Array.isArray(cfg.trackedVariants) ? cfg.trackedVariants : [];
+        this.variantCounts = (cfg.variantCounts && typeof cfg.variantCounts === 'object') ? cfg.variantCounts : {};
+        this.variantLog = Array.isArray(cfg.variantLog) ? cfg.variantLog : [];
+        this.batchCounter = cfg.batchCounter || 0;
+        this.live = !!cfg.live;
+        this.sessionStartedAt = cfg.sessionStartedAt || null;
+        this.streamStartAt = cfg.streamStartAt || null;
+        this.streamEndAt = cfg.streamEndAt || null;
+        this.clips = Array.isArray(cfg.clips) ? cfg.clips : [];
+        this.clipCounter = cfg.clipCounter || 0;
+      }
+    } catch (e) {
+      console.warn('[queue] could not load config:', e.message);
+    }
+    try {
+      if (fs.existsSync(HISTORY_FILE)) {
+        this.history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')) || [];
+      }
+    } catch (e) {
+      console.warn('[queue] could not load history:', e.message);
+    }
+    try {
+      if (fs.existsSync(STATE_FILE)) {
+        const arr = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        for (const o of arr) this.orders.set(o.id, o);
+        // Rebuild openBatch map from queued orders.
+        for (const o of arr) {
+          if (o.status === 'queued') this.openBatch.set(o.buyerId, o.batchKey);
+        }
+        console.log(`[queue] restored ${this.orders.size} orders from disk`);
+      }
+    } catch (e) {
+      console.warn('[queue] could not load state:', e.message);
+    }
+  }
+
+  /**
+   * Per-store configuration lives in env vars so BOTH stores can run the exact
+   * same code. Idempotent and safe to run every boot:
+   *  - PRIORITY_ITEMS_EXTRA: comma/newline list of item substrings that should
+   *    ALWAYS trigger priority (unioned in, never removes existing).
+   *  - TRACKED_VARIANTS: JSON array of { id, label, product, variant } — the
+   *    per-variant counters. Only the DEFINITIONS are seeded; live counts in
+   *    variantCounts are never touched here.
+   */
+  _seedFromEnv() {
+    try {
+      const extra = String(process.env.PRIORITY_ITEMS_EXTRA || '')
+        .split(/[\n,]/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (extra.length) {
+        const set = new Set(this.priorityItems);
+        for (const p of extra) set.add(p);
+        this.priorityItems = [...set];
+      }
+    } catch (e) { console.warn('[queue] PRIORITY_ITEMS_EXTRA seed failed:', e.message); }
+    try {
+      if (process.env.TRACKED_VARIANTS) {
+        const defs = JSON.parse(process.env.TRACKED_VARIANTS);
+        if (Array.isArray(defs)) {
+          const byId = new Map(this.trackedVariants.map((v) => [v.id, v]));
+          for (const d of defs) {
+            if (!d || d.id == null) continue;
+            byId.set(String(d.id), {
+              id: String(d.id),
+              label: String(d.label || d.id),
+              product: String(d.product || ''),
+              variant: String(d.variant || ''),
+            });
+          }
+          this.trackedVariants = [...byId.values()];
+        }
+      }
+    } catch (e) { console.warn('[queue] TRACKED_VARIANTS seed failed:', e.message); }
+    // Recompute priority flags in case the env extras changed matching, then save.
+    for (const o of this.orders.values()) o.hasPriority = this._isPriorityOrder(o.items);
+    this._persist();
+  }
+
+  /** Stamp the current top slot's orders with reachedTopAt (once each) and tally
+   *  any tracked-variant units they contain. Called after every queue mutation
+   *  so "reached the top" is detected no matter what caused the reorder. */
+  _markTopReached() {
+    const top = this.activeQueue()[0];
+    if (!top) return false;
+    const orders = [...this.orders.values()].filter(
+      (o) => o.batchKey === top.key && o.status === 'queued' && !o.reachedTopAt
+    );
+    if (!orders.length) return false;
+    const now = Date.now();
+    for (const o of orders) {
+      o.reachedTopAt = now;
+      this._tallyVariants(o);
+    }
+    return true;
+  }
+
+  /** Add an order's units to any matching tracked-variant counters. Matches on
+   *  the item name/SKU text: requires the variant substring, and (if set) the
+   *  product substring too, so a short variant token can't match unrelated items. */
+  _tallyVariants(order) {
+    if (!this.trackedVariants.length) return;
+    for (const it of (order.items || [])) {
+      const text = `${it.name || ''} ${it.sku || ''}`.toLowerCase();
+      const qty = it.qty || 1;
+      for (const v of this.trackedVariants) {
+        const prod = (v.product || '').toLowerCase();
+        const varn = (v.variant || '').toLowerCase();
+        if (!varn) continue;
+        if ((!prod || text.includes(prod)) && text.includes(varn)) {
+          this.variantCounts[v.id] = (this.variantCounts[v.id] || 0) + qty;
+        }
+      }
+    }
+  }
+
+  /** Replace the tracked-variant DEFINITIONS (admin editor). Preserves the live
+   *  count for any id that still exists; drops counts for removed ids. */
+  setTrackedVariants(list) {
+    const defs = (Array.isArray(list) ? list : []).filter((d) => d && d.id != null).map((d) => ({
+      id: String(d.id),
+      label: String(d.label || d.id),
+      product: String(d.product || ''),
+      variant: String(d.variant || ''),
+    }));
+    this.trackedVariants = defs;
+    const keep = {};
+    for (const d of defs) keep[d.id] = this.variantCounts[d.id] || 0;
+    this.variantCounts = keep;
+    this._persist();
+    this.emit('change', { reason: 'variants-config' });
+  }
+
+  /** Manually set one variant's counter (admin correction) or reset it to 0.
+   *  Every manual change is written to variantLog with the BEFORE value, so if a
+   *  counter is ever changed/reset by mistake the prior number is recoverable. */
+  setVariantCount(id, n) {
+    const key = String(id);
+    const v = this.trackedVariants.find((x) => x.id === key);
+    if (!v) return false;
+    const from = this.variantCounts[key] || 0;
+    const to = Math.max(0, Math.floor(Number(n) || 0));
+    this.variantCounts[key] = to;
+    this._logVariant({
+      id: key, label: v.label, from, to,
+      action: (to === 0 && from !== 0) ? 'reset' : 'edit',
+    });
+    this._persist();
+    this.emit('change', { reason: 'variant-count', id: key });
+    return true;
+  }
+
+  /** Append an audit entry (most-recent-first) and cap the log size. */
+  _logVariant(entry) {
+    this.variantLog.unshift({ ts: Date.now(), ...entry });
+    if (this.variantLog.length > 200) this.variantLog.length = 200;
+  }
+
+  _persist() {
+    try {
+      fs.writeFileSync(STATE_FILE, JSON.stringify([...this.orders.values()]));
+      fs.writeFileSync(
+        CONFIG_FILE,
+        JSON.stringify({
+          priorityItems: this.priorityItems,
+          trackedVariants: this.trackedVariants,
+          variantCounts: this.variantCounts,
+          variantLog: this.variantLog,
+          batchCounter: this.batchCounter,
+          live: this.live,
+          sessionStartedAt: this.sessionStartedAt,
+          streamStartAt: this.streamStartAt,
+          streamEndAt: this.streamEndAt,
+          clips: this.clips,
+          clipCounter: this.clipCounter,
+        })
+      );
+    } catch (e) {
+      console.warn('[queue] persist failed:', e.message);
+    }
+  }
+
+  _persistHistory() {
+    try {
+      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.history));
+    } catch (e) {
+      console.warn('[queue] history persist failed:', e.message);
+    }
+  }
+
+  /** Detailed per-order records of everything fulfilled this session. */
+  fulfilledRecords() {
+    return [...this.orders.values()]
+      .filter((o) => o.status === 'fulfilled')
+      .sort((a, b) => (b.fulfilledAt || 0) - (a.fulfilledAt || 0))
+      .map((o) => ({
+        orderId: o.id,
+        buyerId: o.buyerId,
+        buyer: o.buyer,
+        items: o.items,
+        total: o.total,
+        fulfilledAt: o.fulfilledAt,
+      }));
+  }
+
+  /** Order ids of everything still queued — used by the poller to batch-refresh
+   *  On Hold status. */
+  queuedOrderIds() {
+    return [...this.orders.values()].filter((o) => o.status === 'queued').map((o) => o.id);
+  }
+
+  /** Flag/unflag a queued order as On Hold (TikTok-side). Returns true if it
+   *  actually changed, so the poller can log only real transitions. */
+  setHold(orderId, onHold) {
+    const o = this.orders.get(String(orderId));
+    if (!o || o.status !== 'queued') return false;
+    if (!!o.onHold === !!onHold) return false;
+    o.onHold = !!onHold;
+    this._persist();
+    this.emit('change', { reason: 'hold-change', orderId: String(orderId), onHold: !!onHold });
+    return true;
+  }
+
+  /** Refresh cancellation info for a queued order — order-level flag plus the
+   *  per-item cancelled flags. upsertOrder is idempotent on order id, so a
+   *  cancellation that lands AFTER the order is already queued (the common case
+   *  during a live) has to be applied here rather than on re-ingest. Returns true
+   *  if anything actually changed, so the poller can log only real transitions.
+   *  info = { cancelRequested:boolean, items:[{name, cancelled}] }. */
+  setCancelInfo(orderId, info) {
+    const o = this.orders.get(String(orderId));
+    if (!o || o.status !== 'queued') return false;
+    let changed = false;
+    const nextReq = !!(info && info.cancelRequested);
+    if (!!o.cancelRequested !== nextReq) { o.cancelRequested = nextReq; changed = true; }
+    // Merge per-item cancelled flags by item name (the display name already folds
+    // in the variant, so it uniquely identifies the line to the packer).
+    if (info && Array.isArray(info.items) && info.items.length) {
+      const cancelledNames = new Set(info.items.filter((it) => it.cancelled).map((it) => it.name));
+      for (const it of (o.items || [])) {
+        const nc = cancelledNames.has(it.name);
+        if (!!it.cancelled !== nc) { it.cancelled = nc; changed = true; }
+      }
+    }
+    if (changed) {
+      this._persist();
+      this.emit('change', { reason: 'cancel-change', orderId: String(orderId), cancelRequested: nextReq });
+    }
+    return changed;
+  }
+
+  /** Detailed per-order records of orders still queued (unfulfilled) this
+   *  session — captured when a stream is archived so nothing is silently lost. */
+  queuedRecords() {
+    return [...this.orders.values()]
+      .filter((o) => o.status === 'queued')
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+      .map((o) => ({
+        orderId: o.id,
+        buyerId: o.buyerId,
+        buyer: o.buyer,
+        items: o.items,
+        total: o.total,
+        createdAt: o.createdAt,
+      }));
+  }
+
+  /** Detailed per-order records of everything cancelled this session. */
+  cancelledRecords() {
+    return [...this.orders.values()]
+      .filter((o) => o.status === 'cancelled')
+      .sort((a, b) => (b.cancelledAt || 0) - (a.cancelledAt || 0))
+      .map((o) => ({
+        orderId: o.id,
+        buyerId: o.buyerId,
+        buyer: o.buyer,
+        items: o.items,
+        total: o.total,
+        cancelledAt: o.cancelledAt,
+      }));
+  }
+
+  _isPriorityOrder(items) {
+    if (!this.priorityItems.length) return false;
+    return (items || []).some((it) => {
+      const name = (it.name || '').toLowerCase();
+      const sku = (it.sku || '').toLowerCase();
+      return this.priorityItems.some((p) => p && (name.includes(p) || sku.includes(p)));
+    });
+  }
+
+  /** Ingest an order. Merges into the buyer's open slot if one exists. */
+  upsertOrder(raw) {
+    const id = String(raw.id);
+    if (this.orders.has(id)) return this.orders.get(id); // idempotent on order id
+
+    // Off-air: when not live, incoming orders are ignored entirely.
+    if (!this.live) return null;
+
+    const buyerId = String(raw.buyerId);
+    const items = raw.items || [];
+    const hasPriority = this._isPriorityOrder(items);
+
+    // Find (or open) the buyer's active slot.
+    let batchKey = this.openBatch.get(buyerId);
+    let mergedInto = false;
+    if (batchKey) {
+      mergedInto = true;
+    } else {
+      batchKey = `${buyerId}#${++this.batchCounter}`;
+      this.openBatch.set(buyerId, batchKey);
+    }
+
+    // Was this buyer already sitting at the TOP of the queue (position 1, i.e.
+    // very likely already being packed) when this new order merged in? Flag it
+    // so the packer is loudly told to add the new item(s) to the bag in
+    // progress instead of assuming that slot is done. (Computed before the new
+    // order is added; a merge never changes the slot's position.)
+    let mergedWhileTop = false;
+    if (mergedInto) {
+      const top = this.activeQueue()[0];
+      mergedWhileTop = !!(top && top.key === batchKey);
+    }
+
+    const order = {
+      id,
+      buyerId,
+      buyer: raw.buyer || 'Buyer',
+      buyerHandle: raw.buyerHandle || '',
+      items,
+      total: Number(raw.total || 0),
+      createdAt: raw.createdAt || Date.now(),
+      receivedAt: Date.now(),
+      status: 'queued',
+      batchKey,
+      hasPriority,
+      mergedWhileTop,
+      onHold: !!raw.onHold,
+      // Genuine cancellation (order-level or a specific item) — distinct from the
+      // broad onHold flag, and what actually drives the CANCEL REQ badge.
+      cancelRequested: !!raw.cancelRequested,
+    };
+    this.orders.set(id, order);
+    this._markTopReached();
+    this._persist();
+
+    const entry = this._entryFor(batchKey);
+    this.emit('change', { reason: mergedInto ? 'merged' : 'new-slot', entry, order });
+    if (!mergedInto) this.emit('new-slot', entry);
+    else this.emit('merged', { entry, order });
+    return order;
+  }
+
+  /** Build an aggregated slot entry from all queued orders sharing a batchKey. */
+  _entryFor(batchKey) {
+    const orders = [...this.orders.values()].filter(
+      (o) => o.batchKey === batchKey && o.status === 'queued'
+    );
+    if (!orders.length) return null;
+    const first = orders.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+    // How many orders from this same buyer were already fulfilled earlier this
+    // stream — powers the "ordered earlier today" heads-up badge in the panel.
+    const priorFulfilled = [...this.orders.values()].filter(
+      (o) => o.buyerId === first.buyerId && o.status === 'fulfilled'
+    ).length;
+    const priorityOrders = orders.filter((o) => o.hasPriority);
+    const isPriority = priorityOrders.length > 0;
+    const priorityAt = isPriority
+      ? Math.min(...priorityOrders.map((o) => o.createdAt))
+      : Infinity;
+
+    // Merge item lines (sum quantities of same-name items).
+    const itemMap = new Map();
+    for (const o of orders) {
+      for (const it of o.items) {
+        const key = it.name;
+        const prev = itemMap.get(key) || { qty: 0, cancelled: false };
+        prev.qty += (it.qty || 1);
+        if (it.cancelled) prev.cancelled = true;
+        itemMap.set(key, prev);
+      }
+    }
+    const items = [...itemMap.entries()].map(([name, v]) => ({ name, qty: v.qty, cancelled: v.cancelled }));
+
+    const reachedAts = orders.map((o) => o.reachedTopAt).filter(Boolean);
+    return {
+      key: batchKey,
+      buyerId: first.buyerId,
+      buyer: first.buyer,
+      // Admin-only cross-check: the buyer's unique @username (the queue label is
+      // their display name). Never surfaced on the public view.
+      buyerHandle: first.buyerHandle || '',
+      orderIds: orders.map((o) => o.id),
+      orderCount: orders.length,
+      // Per-order breakdown (oldest first) so the panel can group the expanded
+      // view by order number and separate anything added after the buyer hit #1.
+      // Same-name items WITHIN an order are summed (5× pack, not 1× pack ×5).
+      orderLines: orders
+        .slice()
+        .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+        .map((o) => {
+          const m = new Map();
+          for (const it of (o.items || [])) {
+            const prev = m.get(it.name) || { qty: 0, cancelled: false };
+            prev.qty += (it.qty || 1);
+            if (it.cancelled) prev.cancelled = true;
+            m.set(it.name, prev);
+          }
+          return {
+            id: o.id,
+            items: [...m.entries()].map(([name, v]) => ({ name, qty: v.qty, cancelled: v.cancelled })),
+            addedSinceTop: !!o.mergedWhileTop,
+          };
+        }),
+      items,
+      itemCount: items.reduce((n, i) => n + i.qty, 0),
+      total: orders.reduce((s, o) => s + o.total, 0),
+      isPriority,
+      priorityItems: [...new Set(
+        orders.flatMap((o) => o.items.filter((it) => this._isPriorityOrder([it])).map((it) => it.name))
+      )],
+      firstOrderAt: first.createdAt,
+      // When this slot first reached the top of the queue (drives the "time at
+      // top" live timer and the fulfillment-time metric). null until it hits #1.
+      reachedTopAt: reachedAts.length ? Math.min(...reachedAts) : null,
+      priorityAt,
+      bumped: !!first.bumped,
+      priorFulfilled,
+      // True when a new order merged into this slot while it was already #1 in
+      // the queue — surfaced as a loud "ADDED MORE" badge in the panel. The
+      // count is how many times it happened, so the badge can show ×2/×3 if the
+      // buyer keeps adding after you've already started combining.
+      reorderedAtTop: orders.some((o) => o.mergedWhileTop),
+      reorderedAtTopCount: orders.filter((o) => o.mergedWhileTop).length,
+      // TikTok put one of this slot's orders On Hold — could be an address check,
+      // an order combine/split, a sample/exchange order, or a pending review. On
+      // its own it is NOT a cancellation; surfaced as a soft "verify" badge.
+      onHold: orders.some((o) => o.onHold),
+      // A genuine cancellation was requested on one of this slot's orders (whole
+      // order or a specific item). This drives the red CANCEL REQ badge and the
+      // per-item highlight; the specific item(s) are marked in items/orderLines.
+      cancelRequested: orders.some((o) => o.cancelRequested),
+      _bumpKey: batchKey,
+    };
+  }
+
+  markFulfilled(batchKey) {
+    const orders = [...this.orders.values()].filter(
+      (o) => o.batchKey === batchKey && o.status === 'queued'
+    );
+    if (!orders.length) return null;
+    const buyerId = orders[0].buyerId;
+    const now = Date.now();
+    for (const o of orders) {
+      o.status = 'fulfilled';
+      o.fulfilledAt = now;
+      o.bumped = false;
+    }
+    if (this.openBatch.get(buyerId) === batchKey) this.openBatch.delete(buyerId);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'fulfilled', batchKey, buyerId });
+    return { batchKey, buyerId };
+  }
+
+  reopen(batchKey) {
+    const orders = [...this.orders.values()].filter((o) => o.batchKey === batchKey);
+    if (!orders.length) return null;
+    const buyerId = orders[0].buyerId;
+    // Only reopen if the buyer has no other open slot.
+    if (this.openBatch.has(buyerId)) return null;
+    for (const o of orders) {
+      o.status = 'queued';
+      o.fulfilledAt = null;
+    }
+    this.openBatch.set(buyerId, batchKey);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'reopened', batchKey });
+    return { batchKey };
+  }
+
+  /** Force a slot to the very top. Only one slot can be bumped at a time. */
+  bump(batchKey) {
+    let found = false;
+    for (const o of this.orders.values()) {
+      if (o.batchKey === batchKey && o.status === 'queued') {
+        o.bumped = true;
+        found = true;
+      } else if (o.bumped) {
+        o.bumped = false;
+      }
+    }
+    if (!found) return null;
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'bumped', batchKey });
+    return { batchKey };
+  }
+
+  /** Configure which item names/SKUs trigger priority. Recomputes existing orders. */
+  setPriorityItems(list) {
+    this.priorityItems = (list || [])
+      .map((s) => String(s).trim().toLowerCase())
+      .filter(Boolean);
+    for (const o of this.orders.values()) {
+      o.hasPriority = this._isPriorityOrder(o.items);
+    }
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'priority-config', priorityItems: this.priorityItems });
+  }
+
+  /** Archive the current stream (fulfilled + cancelled + still-unfulfilled) to
+   *  history, if it had any activity. Does NOT clear the board — callers do. */
+  _archiveCurrentStream() {
+    const records = this.fulfilledRecords();
+    const cancelledRecs = this.cancelledRecords();
+    const unfulfilledRecs = this.queuedRecords();
+    if (records.length || cancelledRecs.length || unfulfilledRecs.length) {
+      this.history.unshift({
+        id: String(this.sessionStartedAt || Date.now()),
+        startedAt: this.sessionStartedAt || null,
+        endedAt: Date.now(),
+        count: records.length,
+        value: records.reduce((s, r) => s + r.total, 0),
+        unfulfilledCount: unfulfilledRecs.length,
+        fulfilled: records,
+        cancelled: cancelledRecs,
+        unfulfilled: unfulfilledRecs,
+      });
+      this.history = this.history.slice(0, MAX_HISTORY);
+      this._persistHistory();
+    }
+  }
+
+  /** Start a live: archives anything left from a stream that wasn't ended,
+   *  clears the queue, and begins accepting orders. */
+  goLive() {
+    this._archiveCurrentStream(); // safety net if the previous stream wasn't ended
+    this.orders.clear();
+    this.openBatch.clear();
+    // Per-variant counters PERSIST across streams (cumulative running totals).
+    // They are only ever changed by the auto-tally or a manual admin edit/reset.
+    this.sessionStartedAt = Date.now();
+    this.live = true;
+    // Auto-start the clip timer at go-live and begin a fresh clip log for this
+    // stream. The operator can still adjust the start time manually afterward.
+    this.streamStartAt = Date.now();
+    this.streamEndAt = null;
+    this.clips = [];
+    this._persist();
+    this.emit('change', { reason: 'go-live' });
+  }
+
+  /** End a live: archive the whole stream (fulfilled, cancelled, and any
+   *  still-unfulfilled orders) to Past streams, then clear the board so the
+   *  main page empties and everything moves to history. Stops new orders. */
+  endLive() {
+    this._archiveCurrentStream();
+    this.orders.clear();
+    this.openBatch.clear();
+    this.live = false;
+    // Freeze the clip timer at the moment the stream went offline. The start time
+    // (and clips) are kept so the clip list stays copyable for the editor.
+    if (this.streamStartAt) this.streamEndAt = Date.now();
+    this._persist();
+    this.emit('change', { reason: 'end-live' });
+  }
+
+  /**
+   * Active queue, top = next to handle. Priority is STAGGERED, not stacked:
+   *   1. Manually bumped slots pin to the very top (explicit operator override).
+   *   2. The slot currently AT the top is never overtaken — a newly-arriving
+   *      priority can't knock whoever is being handled off #1. The current top is
+   *      the still-queued slot that reached the top earliest (locked once reached);
+   *      before anything has reached the top, the earliest-arrived slot holds #1.
+   *   3. Everything below is staggered by time received: priority, regular,
+   *      priority, regular … (priority tier by priority-item purchase time, regular
+   *      tier by first order time). When one tier runs out the other just continues,
+   *      so slots only sit back-to-back when there's nothing to stagger against.
+   */
+  activeQueue() {
+    const keys = new Set(
+      [...this.orders.values()].filter((o) => o.status === 'queued').map((o) => o.batchKey)
+    );
+    const entries = [...keys].map((k) => this._entryFor(k)).filter(Boolean);
+
+    // 1. Manually bumped slots -> very top.
+    const bumped = entries.filter((e) => e.bumped)
+      .sort((a, b) => a.firstOrderAt - b.firstOrderAt);
+    let rest = entries.filter((e) => !e.bumped);
+
+    // 2. Protect whoever is currently at the top.
+    let anchor = null;
+    const reached = rest.filter((e) => e.reachedTopAt != null);
+    if (reached.length) {
+      anchor = reached.reduce((a, b) => (a.reachedTopAt <= b.reachedTopAt ? a : b));
+    } else if (rest.length) {
+      anchor = rest.reduce((a, b) => (a.firstOrderAt <= b.firstOrderAt ? a : b));
+    }
+    if (anchor) rest = rest.filter((e) => e !== anchor);
+
+    // 3. Stagger the remainder: priority, regular, priority, regular …
+    const pri = rest.filter((e) => e.isPriority)
+      .sort((a, b) => a.priorityAt - b.priorityAt);
+    const reg = rest.filter((e) => !e.isPriority)
+      .sort((a, b) => a.firstOrderAt - b.firstOrderAt);
+    const staggered = [];
+    let i = 0, j = 0;
+    while (i < pri.length || j < reg.length) {
+      if (i < pri.length) staggered.push(pri[i++]);
+      if (j < reg.length) staggered.push(reg[j++]);
+    }
+
+    const ordered = [...bumped, ...(anchor ? [anchor] : []), ...staggered];
+    return ordered.map((e, idx) => ({ ...e, position: idx + 1 }));
+  }
+
+  fulfilledSlots() {
+    const byBatch = new Map();
+    for (const o of this.orders.values()) {
+      if (o.status !== 'fulfilled') continue;
+      if (!byBatch.has(o.batchKey)) byBatch.set(o.batchKey, []);
+      byBatch.get(o.batchKey).push(o);
+    }
+    const slots = [...byBatch.entries()].map(([key, orders]) => {
+      const first = orders[0];
+      const reachedAts = orders.map((o) => o.reachedTopAt).filter(Boolean);
+      return {
+        key,
+        buyer: first.buyer,
+        buyerId: first.buyerId,
+        orderIds: orders.map((o) => o.id),
+        itemCount: orders.reduce((n, o) => n + o.items.reduce((m, i) => m + (i.qty || 1), 0), 0),
+        total: orders.reduce((s, o) => s + o.total, 0),
+        fulfilledAt: Math.max(...orders.map((o) => o.fulfilledAt || 0)),
+        // Timing fields for the queue metrics.
+        firstOrderAt: Math.min(...orders.map((o) => o.createdAt || o.fulfilledAt || 0)),
+        reachedTopAt: reachedAts.length ? Math.min(...reachedAts) : null,
+      };
+    });
+    slots.sort((a, b) => b.fulfilledAt - a.fulfilledAt);
+    return slots;
+  }
+
+  stats() {
+    const active = this.activeQueue();
+    const done = this.fulfilledSlots();
+    // Average time-in-queue (placed -> fulfilled) and fulfillment time (reached
+    // top -> fulfilled) across everything fulfilled this stream.
+    const inQueue = done
+      .map((s) => (s.fulfilledAt && s.firstOrderAt) ? s.fulfilledAt - s.firstOrderAt : null)
+      .filter((v) => v != null && v >= 0);
+    const atTop = done
+      .map((s) => (s.fulfilledAt && s.reachedTopAt) ? s.fulfilledAt - s.reachedTopAt : null)
+      .filter((v) => v != null && v >= 0);
+    const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+    return {
+      activeCount: active.length,
+      priorityCount: active.filter((e) => e.isPriority).length,
+      fulfilledCount: done.length,
+      activeValue: active.reduce((s, e) => s + e.total, 0),
+      priorityItems: this.priorityItems,
+      live: this.live,
+      // Queue timing metrics (admin only). Milliseconds; null when no data yet.
+      avgTimeInQueueMs: avg(inQueue),
+      avgFulfillmentMs: avg(atTop),
+      timedCount: inQueue.length,
+    };
+  }
+
+  snapshot() {
+    return {
+      queue: this.activeQueue(),
+      fulfilled: this.fulfilledSlots().slice(0, 50),
+      cancelled: this.cancelledSlots().slice(0, 50),
+      stats: this.stats(),
+      config: { priorityItems: this.priorityItems },
+      variants: this.trackedVariants.map((v) => ({
+        id: v.id, label: v.label, product: v.product, variant: v.variant,
+        count: this.variantCounts[v.id] || 0,
+      })),
+      variantLog: this.variantLog.slice(0, 50),
+      streamStartAt: this.streamStartAt,
+      streamEndAt: this.streamEndAt,
+      clips: this.clips.slice().sort((a, b) => (a.at || 0) - (b.at || 0)),
+      history: this.history.map((s) => ({
+        id: s.id,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        count: s.count,
+        value: s.value,
+        unfulfilledCount: s.unfulfilledCount || 0,
+      })),
+    };
+  }
+
+  reset() {
+    this.orders.clear();
+    this.openBatch.clear();
+    this._persist();
+    this.emit('change', { reason: 'reset' });
+  }
+
+  // ── Stream clip log (editor aid) ────────────────────────────────────────────
+  /** Set the manually-entered stream start time (ms epoch), or null to clear.
+   *  Clip elapsed times are computed against this. */
+  setStreamStart(atMs) {
+    const n = Number(atMs);
+    this.streamStartAt = (Number.isFinite(n) && n > 0) ? Math.round(n) : null;
+    this._persist();
+    this.emit('change', { reason: 'stream-start', streamStartAt: this.streamStartAt });
+    return this.streamStartAt;
+  }
+
+  /** Add a clip mark. Timestamp defaults to now (server clock) but an explicit
+   *  epoch may be supplied. Returns the created clip. */
+  addClip(atMs, note) {
+    const n = Number(atMs);
+    const at = (Number.isFinite(n) && n > 0) ? Math.round(n) : Date.now();
+    const clip = { id: `clip${++this.clipCounter}`, at, note: String(note || '').slice(0, 500) };
+    this.clips.push(clip);
+    this._persist();
+    this.emit('change', { reason: 'clip-add', id: clip.id });
+    return clip;
+  }
+
+  /** Edit a clip's timestamp (ms epoch) and/or note. */
+  updateClip(id, patch) {
+    const c = this.clips.find((x) => x.id === String(id));
+    if (!c) return null;
+    if (patch && patch.at != null) {
+      const n = Number(patch.at);
+      if (Number.isFinite(n) && n > 0) c.at = Math.round(n);
+    }
+    if (patch && patch.note != null) c.note = String(patch.note).slice(0, 500);
+    this._persist();
+    this.emit('change', { reason: 'clip-update', id: c.id });
+    return c;
+  }
+
+  removeClip(id) {
+    const i = this.clips.findIndex((x) => x.id === String(id));
+    if (i < 0) return false;
+    this.clips.splice(i, 1);
+    this._persist();
+    this.emit('change', { reason: 'clip-remove', id: String(id) });
+    return true;
+  }
+
+  clearClips() {
+    this.clips = [];
+    this._persist();
+    this.emit('change', { reason: 'clips-clear' });
+    return true;
+  }
+
+  /** Remove a whole slot from the queue WITHOUT fulfilling it (e.g. the buyer
+   *  cancelled). Marked 'cancelled' so it drops out of the active queue and the
+   *  fulfilled list, and shows in the Cancelled section for tracking. */
+  removeSlot(batchKey) {
+    const orders = [...this.orders.values()].filter(
+      (o) => o.batchKey === batchKey && o.status === 'queued'
+    );
+    if (!orders.length) return null;
+    const buyerId = orders[0].buyerId;
+    const now = Date.now();
+    for (const o of orders) { o.status = 'cancelled'; o.cancelledAt = now; o.bumped = false; }
+    if (this.openBatch.get(buyerId) === batchKey) this.openBatch.delete(buyerId);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'cancelled', batchKey });
+    return { batchKey };
+  }
+
+  /** Cancel a SINGLE order by its order id (used by the auto re-check when an
+   *  order flips to CANCELLED on TikTok). Leaves any other orders in the same
+   *  buyer's slot untouched. */
+  cancelOrder(orderId) {
+    const o = this.orders.get(String(orderId));
+    if (!o || o.status !== 'queued') return null;
+    o.status = 'cancelled';
+    o.cancelledAt = Date.now();
+    o.bumped = false;
+    // If the buyer's open slot has no queued orders left, close it.
+    const stillOpen = [...this.orders.values()].some(
+      (x) => x.batchKey === o.batchKey && x.status === 'queued'
+    );
+    if (!stillOpen && this.openBatch.get(o.buyerId) === o.batchKey) this.openBatch.delete(o.buyerId);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'cancelled', orderId: String(orderId) });
+    return o;
+  }
+
+  /** Cancelled slots (grouped by buyer batch) for the admin Cancelled section. */
+  cancelledSlots() {
+    const byBatch = new Map();
+    for (const o of this.orders.values()) {
+      if (o.status !== 'cancelled') continue;
+      if (!byBatch.has(o.batchKey)) byBatch.set(o.batchKey, []);
+      byBatch.get(o.batchKey).push(o);
+    }
+    const slots = [...byBatch.entries()].map(([key, orders]) => {
+      const first = orders[0];
+      return {
+        key,
+        buyer: first.buyer,
+        buyerId: first.buyerId,
+        orderIds: orders.map((o) => o.id),
+        itemCount: orders.reduce((n, o) => n + o.items.reduce((m, i) => m + (i.qty || 1), 0), 0),
+        total: orders.reduce((s, o) => s + o.total, 0),
+        cancelledAt: Math.max(...orders.map((o) => o.cancelledAt || 0)),
+      };
+    });
+    slots.sort((a, b) => b.cancelledAt - a.cancelledAt);
+    return slots;
+  }
+
+  /** Inject a synthetic order for testing (e.g. label printing) regardless of
+   *  live state. Behaves like a real ingest otherwise (merges by buyer, etc.). */
+  injectTestOrder(raw) {
+    const wasLive = this.live;
+    this.live = true;
+    const order = this.upsertOrder(raw);
+    this.live = wasLive;
+    this._persist();
+    this.emit('change', { reason: 'test-order' });
+    return order;
+  }
+}

@@ -1,0 +1,590 @@
+// TikTok Shop integration.
+//
+// - OAuth token management: exchange auth_code -> access/refresh tokens,
+//   auto-refresh before/when they expire, persist to disk within a session.
+// - Order ingest by POLLING: while the seller is live, poll for recently
+//   created orders every few seconds and push them into the queue. Polling is
+//   simpler and more reliable on ephemeral/free hosting than inbound webhooks,
+//   and it naturally respects the "only while live" rule.
+//
+// Endpoints (TikTok Shop Open API):
+//   Auth:   https://auth.tiktok-shops.com/api/v2/token/get   (grant_type=authorized_code)
+//           https://auth.tiktok-shops.com/api/v2/token/refresh (grant_type=refresh_token)
+//   API:    https://open-api.tiktokglobalshop.com  (signed requests)
+
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const DATA_DIR = path.resolve(process.cwd(), 'data');
+const TOKEN_FILE = path.join(DATA_DIR, 'tiktok-tokens.json');
+
+const AUTH_BASE = process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com';
+const API_BASE = process.env.TIKTOK_API_BASE || 'https://open-api.tiktokglobalshop.com';
+const API_VERSION = process.env.TIKTOK_API_VERSION || '202309';
+const APP_KEY = process.env.TIKTOK_APP_KEY || '';
+const APP_SECRET = process.env.TIKTOK_APP_SECRET || '';
+
+// Token state — seeded from env, overlaid by persisted file, updated at runtime.
+let tokens = {
+  accessToken: process.env.TIKTOK_ACCESS_TOKEN || '',
+  refreshToken: process.env.TIKTOK_REFRESH_TOKEN || '',
+  shopCipher: process.env.TIKTOK_SHOP_CIPHER || '',
+  shopId: process.env.TIKTOK_SHOP_ID || '',
+  sellerName: '',
+  accessExpireAt: 0,
+  lastError: '',
+};
+
+export function tiktokEnabled() {
+  return process.env.TIKTOK_ENABLED === 'true' && !!APP_KEY && !!APP_SECRET;
+}
+
+function persist() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens));
+  } catch (e) { console.warn('[tiktok] token persist failed:', e.message); }
+}
+(function loadPersisted() {
+  try {
+    if (fs.existsSync(TOKEN_FILE)) tokens = { ...tokens, ...JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8')) };
+  } catch { /* ignore */ }
+})();
+
+// ---------------- Token endpoints ----------------
+function applyTokenData(d) {
+  if (!d) return;
+  if (d.access_token) tokens.accessToken = d.access_token;
+  if (d.refresh_token) tokens.refreshToken = d.refresh_token;
+  // TikTok returns access_token_expire_in as an ABSOLUTE unix epoch (seconds),
+  // not a duration. Guard for both: a value > 1e9 is an absolute epoch, a small
+  // value is a duration in seconds.
+  if (d.access_token_expire_in) {
+    const v = Number(d.access_token_expire_in);
+    const absMs = v > 1e9 ? v * 1000 : Date.now() + v * 1000;
+    tokens.accessExpireAt = absMs - 60000; // refresh a minute early
+  }
+  if (d.seller_name) tokens.sellerName = d.seller_name;
+  tokens.lastError = '';
+  persist();
+}
+
+async function tokenGet(authCode) {
+  const url = `${AUTH_BASE}/api/v2/token/get?app_key=${APP_KEY}&app_secret=${APP_SECRET}` +
+    `&auth_code=${encodeURIComponent(authCode)}&grant_type=authorized_code`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (body.code !== 0) throw new Error('token/get: ' + (body.message || JSON.stringify(body)));
+  applyTokenData(body.data);
+  return body.data;
+}
+
+async function tokenRefresh() {
+  if (!tokens.refreshToken) throw new Error('no refresh token');
+  const url = `${AUTH_BASE}/api/v2/token/refresh?app_key=${APP_KEY}&app_secret=${APP_SECRET}` +
+    `&refresh_token=${encodeURIComponent(tokens.refreshToken)}&grant_type=refresh_token`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (body.code !== 0) throw new Error('token/refresh: ' + (body.message || JSON.stringify(body)));
+  applyTokenData(body.data);
+  console.log('[tiktok] access token refreshed');
+  return body.data;
+}
+
+// ---------------- Signed API calls ----------------
+function sign(pathName, params, body = '') {
+  const keys = Object.keys(params).filter((k) => k !== 'sign' && k !== 'access_token').sort();
+  let base = pathName;
+  for (const k of keys) base += k + params[k];
+  base += body || '';
+  base = APP_SECRET + base + APP_SECRET;
+  return crypto.createHmac('sha256', APP_SECRET).update(base).digest('hex');
+}
+
+async function apiCall(method, pathName, extraParams = {}, jsonBody = null, retry = true, includeShopCipher = true) {
+  const params = {
+    app_key: APP_KEY,
+    timestamp: String(Math.floor(Date.now() / 1000)),
+    // The authorization/shops endpoint rejects shop_cipher; other endpoints need it.
+    ...((includeShopCipher && tokens.shopCipher) ? { shop_cipher: tokens.shopCipher } : {}),
+    ...extraParams,
+  };
+  const bodyStr = jsonBody ? JSON.stringify(jsonBody) : '';
+  params.sign = sign(pathName, params, bodyStr);
+  const qs = new URLSearchParams(params).toString();
+  // Transient network failures (DNS, connection reset, the generic "fetch
+  // failed") get a couple of quick retries with a short backoff before giving
+  // up, so a brief blip doesn't turn into a poll error or a missed order.
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${pathName}?${qs}`, {
+        method,
+        headers: { 'x-tts-access-token': tokens.accessToken, 'content-type': 'application/json' },
+        ...(jsonBody ? { body: bodyStr } : {}),
+      });
+      break;
+    } catch (e) {
+      if (attempt >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  const body = await res.json().catch(() => ({}));
+  // Refresh + retry once on any token-related error.
+  if (retry && tokens.refreshToken && body && body.code && /token|auth|expire/i.test(JSON.stringify(body))) {
+    try { await tokenRefresh(); } catch (e) { tokens.lastError = e.message; persist(); return body; }
+    return apiCall(method, pathName, extraParams, jsonBody, false, includeShopCipher);
+  }
+  return body;
+}
+
+async function getShopCipher() {
+  const pathName = `/authorization/${API_VERSION}/shops`;
+  const body = await apiCall('GET', pathName, {}, null, true, false);
+  const shop = body?.data?.shops?.[0];
+  if (shop && shop.cipher) {
+    tokens.shopCipher = shop.cipher;
+    tokens.shopId = shop.id;
+    if (shop.name) tokens.sellerName = tokens.sellerName || shop.name;
+    tokens.lastError = '';
+    persist();
+    console.log('[tiktok] shop cipher acquired for', tokens.sellerName || tokens.shopId);
+  } else {
+    // Record why so the panel / debug route can surface it.
+    tokens.lastError = 'get-shops: ' + JSON.stringify(body).slice(0, 300);
+    persist();
+    console.warn('[tiktok] get-shops returned no usable cipher:', JSON.stringify(body).slice(0, 500));
+  }
+  return shop;
+}
+
+// Debug helper: return the raw shops-endpoint response (used by an admin route).
+export async function debugShops() {
+  const pathName = `/authorization/${API_VERSION}/shops`;
+  const raw = await apiCall('GET', pathName, {}, null, true, false);
+  return {
+    tokenState: {
+      hasAccess: !!tokens.accessToken,
+      hasRefresh: !!tokens.refreshToken,
+      hasCipher: !!tokens.shopCipher,
+      accessExpireAt: tokens.accessExpireAt,
+      sellerName: tokens.sellerName,
+      shopId: tokens.shopId,
+    },
+    apiBase: API_BASE,
+    apiVersion: API_VERSION,
+    shopsResponse: raw,
+  };
+}
+
+// Debug helper: force a fresh getShopCipher using current access token.
+export async function refetchShopCipher() {
+  await getShopCipher();
+  return tiktokStatus();
+}
+
+// ---------------- Orders ----------------
+// Pull the buyer's public TikTok handle/display name — NEVER the real shipping
+// name (recipient_address.name), which is private and would leak on the public
+// page. We check every field TikTok has historically used for the handle, then
+// fall back to a masked buyer id if none is present.
+function firstStr(...vals) {
+  for (const c of vals) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return '';
+}
+// The buyer's @handle (username), preferred for the public queue line.
+function pickHandle(o) {
+  return firstStr(
+    o.buyer_username, o.username, o.user_name, o.buyer_user_name,
+    o.buyer?.username, o.user_info?.username,
+  );
+}
+// The buyer's display name / nickname — an admin-only cross-check that can
+// differ from the @handle.
+function pickDisplayName(o) {
+  return firstStr(
+    o.nickname, o.buyer_nickname, o.display_name, o.buyer_display_name,
+    o.buyer?.nickname, o.buyer?.display_name,
+    o.user_info?.nickname, o.user_info?.display_name,
+  );
+}
+// Back-compat: any handle-ish field, either kind. Used as the public label when
+// no explicit @handle is present.
+function pickUsername(o) {
+  return pickHandle(o) || pickDisplayName(o);
+}
+
+function maskedBuyerLabel(o) {
+  const id = String(o.buyer_uid || o.user_id || o.id || '');
+  const last4 = id.slice(-4);
+  return last4 ? `Buyer ${last4}` : 'Buyer';
+}
+
+export function normalizeOrder(o) {
+  const lineItems = o.line_items || o.item_list || [];
+  const items = lineItems.map((li) => {
+    const product = li.product_name || '';
+    // TikTok records the buyer's chosen variation/sub-variant in a SEPARATE field
+    // from the product title (e.g. product "LTs Box Booster Pack Bundle",
+    // variant "Ascended Heroes"; or product "$299 Mystery Bag", variant "Rip
+    // Live"). Capture it and fold it into the display name so it (a) shows in the
+    // queue for the packer and (b) is available for priority + variant-counter
+    // matching, which key off the item name/SKU text.
+    const variant = li.sku_name || li.variation_name || li.variation ||
+      (li.sku && (li.sku.name || li.sku.sku_name)) || '';
+    const base = product || li.sku_name || 'Item';
+    const name = (variant && !base.toLowerCase().includes(String(variant).toLowerCase()))
+      ? `${base} - ${variant}`
+      : base;
+    // Per-item cancellation signal. On a PARTIAL cancellation TikTok flips the
+    // affected line item's display_status to a CANCEL* state and/or fills in a
+    // cancel_reason, while the rest of the order keeps shipping. Capturing it per
+    // item lets the packer see exactly which item to pull without touching the
+    // others.
+    const dstat = String(li.display_status || li.package_status || '').toUpperCase();
+    const itemCancelled = /CANCEL/.test(dstat) || !!(li.cancel_reason && String(li.cancel_reason).trim());
+    return {
+      name,
+      sku: li.seller_sku || li.sku_id || '',
+      variant: variant || '',
+      qty: li.quantity || 1,
+      cancelled: itemCancelled,
+      displayStatus: dstat || '',
+    };
+  });
+  const handle = pickHandle(o);
+  const display = pickDisplayName(o);
+  return {
+    id: o.id || o.order_id,
+    buyerId: o.buyer_uid || o.user_id || o.buyer_email || o.id,
+    // Queue/public label = the buyer's DISPLAY NAME (what shows in TikTok live),
+    // falling back to the @username, then a masked id so a real name never leaks.
+    buyer: display || handle || maskedBuyerLabel(o),
+    // Admin-only cross-check = the unique @username, shown in the expanded order
+    // as a tiebreaker. Only set when TikTok gives one distinct from the display name.
+    buyerHandle: (handle && handle !== display) ? handle : '',
+    items,
+    total: Number(o.payment?.total_amount || o.total_amount || 0),
+    createdAt: o.create_time ? o.create_time * 1000 : Date.now(),
+    // TikTok flips is_on_hold_order for SEVERAL reasons (address check, order
+    // combine/split, sample/exchange orders, or a pending buyer cancellation).
+    // On its own it does NOT mean "cancellation" — treating it that way was
+    // falsely tagging ordinary held orders (e.g. t-shirts) as CANCEL REQ.
+    onHold: !!o.is_on_hold_order,
+    // Definite cancellation signal: the whole order is cancelling, or a specific
+    // line item was flagged cancelled above. This — not onHold — drives the
+    // CANCEL REQ badge and the per-item highlight.
+    cancelRequested: /CANCEL/.test(String(o.status || '').toUpperCase()) || items.some((it) => it.cancelled),
+    // TikTok's deadline to respond to a buyer cancellation request (0 when none).
+    // Captured for diagnostics / a possible future upgrade; not used for the
+    // badge yet because we haven't confirmed it's exclusively cancellation-set.
+    cancelSlaAt: Number(o.cancel_order_sla_time || 0) ? Number(o.cancel_order_sla_time) * 1000 : 0,
+  };
+}
+
+async function fetchOrderDetail(orderId) {
+  const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: orderId });
+  const order = body?.data?.orders?.[0];
+  if (!order) { console.warn('[tiktok] order detail empty for', orderId, JSON.stringify(body).slice(0, 200)); return null; }
+  return normalizeOrder(order);
+}
+
+// Search for order IDs created since `sinceEpoch` with a given order status.
+async function searchOrderIds(sinceEpoch, orderStatus) {
+  const pathName = `/order/${API_VERSION}/orders/search`;
+  const ids = [];
+  let pageToken = '';
+  // Page generously (up to 40×50 = 2000) so a busy window can't silently cut off
+  // the newest orders once the page budget is spent.
+  for (let page = 0; page < 40; page++) {
+    const extra = { page_size: 50, ...(pageToken ? { page_token: pageToken } : {}) };
+    const bodyReq = { create_time_ge: sinceEpoch, order_status: orderStatus };
+    const body = await apiCall('POST', pathName, extra, bodyReq);
+    const orders = body?.data?.orders || [];
+    for (const o of orders) ids.push(o.id || o.order_id);
+    pageToken = body?.data?.next_page_token || '';
+    if (!pageToken) break;
+  }
+  return ids;
+}
+
+// Admin-only inspector: fetch one raw order and surface any handle-ish fields so
+// we can confirm which key TikTok actually populates with the public username.
+// Real names (recipient_address.name/phone/address) are redacted before return.
+export async function debugRawOrder() {
+  const statuses = ['AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'UNPAID', 'COMPLETED', 'CANCELLED'];
+  const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 30; // last 30 days
+  let sampleId = null;
+  for (const st of statuses) {
+    const ids = await searchOrderIds(since, st).catch(() => []);
+    if (ids && ids.length) { sampleId = ids[0]; break; }
+  }
+  if (!sampleId) return { ok: false, note: 'No orders found in the last 30 days to inspect.' };
+
+  const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: sampleId });
+  const order = body?.data?.orders?.[0];
+  if (!order) return { ok: false, note: 'Order detail came back empty.', raw: JSON.stringify(body).slice(0, 300) };
+
+  // Redact obvious PII so this route never leaks a real name/address.
+  const redactKeys = /name|phone|email|address|zip|postal|region|state|city|line|full_address/i;
+  const mask = (v) => {
+    if (v == null) return v;
+    const s = String(v);
+    return s ? s[0] + '***(' + s.length + ')' : s;
+  };
+  const handleish = {};
+  const scan = (obj, prefix = '') => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const [k, v] of Object.entries(obj)) {
+      const path = prefix ? `${prefix}.${k}` : k;
+      if (v && typeof v === 'object' && !Array.isArray(v)) { scan(v, path); continue; }
+      if (/user|name|nick|handle|display|buyer|account/i.test(k)) {
+        handleish[path] = redactKeys.test(k) ? mask(v) : v;
+      }
+    }
+  };
+  scan(order);
+
+  return {
+    ok: true,
+    sampleOrderId: sampleId,
+    topLevelKeys: Object.keys(order),
+    handleishFields: handleish,
+    normalizedBuyer: normalizeOrder(order).buyer,
+  };
+}
+
+// Admin-only probe: can this shop's authorization read buyer cancellation
+// requests? Tries the Search Cancellations API and also reports whether the
+// order detail already exposes on-hold / cancellation-ish fields (which need no
+// extra scope). Read-only — never approves/rejects anything.
+export async function debugCancellations() {
+  const out = { orderFieldSignal: null, cancellationsApi: null };
+
+  // (a) What the order feed already gives us for free (no extra scope). Sample a
+  //     batch of recent orders and report ONLY structural / boolean signals (no
+  //     PII) so we can confirm, on a real stream, whether cancel_order_sla_time
+  //     is exclusively set on genuine cancellation requests, and whether a
+  //     partial cancellation flips an individual line item's display_status.
+  try {
+    const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 30;
+    const ids = [];
+    for (const st of ['ON_HOLD', 'AWAITING_SHIPMENT', 'UNPAID', 'CANCELLED']) {
+      const got = await searchOrderIds(since, st).catch(() => []);
+      for (const id of got.slice(0, 8)) if (!ids.includes(id)) ids.push(id);
+      if (ids.length >= 20) break;
+    }
+    if (ids.length) {
+      const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: ids.slice(0, 20).join(',') });
+      const orders = body?.data?.orders || [];
+      out.orderFieldSignal = {
+        sampled: orders.length,
+        // One row per order — booleans/timestamps/statuses only, no names.
+        rows: orders.map((o) => ({
+          status: o.status,
+          is_on_hold_order: !!o.is_on_hold_order,
+          has_cancel_sla: !!Number(o.cancel_order_sla_time || 0),
+          norm_cancelRequested: normalizeOrder(o).cancelRequested,
+          item_display_statuses: (o.line_items || o.item_list || []).map((li) => li.display_status || ''),
+          any_item_cancel_reason: (o.line_items || o.item_list || []).some((li) => li.cancel_reason && String(li.cancel_reason).trim()),
+        })),
+        cancellation_ish_keys: orders[0] ? Object.keys(orders[0]).filter((k) => /cancel|hold/i.test(k)) : [],
+      };
+    } else {
+      out.orderFieldSignal = { note: 'No recent orders to inspect on-hold fields.' };
+    }
+  } catch (e) { out.orderFieldSignal = { error: e.message }; }
+
+  // (b) The dedicated Search Cancellations API (may require the Return/Refund
+  //     authorization scope). We return the raw code+message so we can tell
+  //     whether it's accessible or needs re-authorization.
+  try {
+    const pathName = `/return_refund/${API_VERSION}/cancellations/search`;
+    const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 30;
+    const resp = await apiCall('POST', pathName, { page_size: 20 }, { create_time_ge: since });
+    out.cancellationsApi = {
+      pathTried: pathName,
+      code: resp?.code,
+      message: resp?.message,
+      count: resp?.data?.total_count ?? (resp?.data?.cancellations || []).length,
+      sampleStatuses: [...new Set((resp?.data?.cancellations || []).map((c) => c.cancel_status))].slice(0, 8),
+    };
+  } catch (e) { out.cancellationsApi = { error: e.message }; }
+
+  return out;
+}
+
+// Admin-triggered backfill: pull AWAITING_SHIPMENT orders created in the last
+// `minutes` and upsert them. Used to recover orders placed BEFORE Go Live when
+// the queue was started late — the normal poller only ingests from Go Live
+// onward, so those earlier orders would otherwise be missed. Fully idempotent
+// (upsertOrder is a no-op on an order already in the queue), so it is always
+// safe to run, even more than once. Only pulls still-unshipped orders, so
+// already-shipped/cancelled ones are never re-added.
+export async function backfillRecent(queue, minutes = 30) {
+  if (!tiktokEnabled()) return { ok: false, error: 'tiktok ingest disabled' };
+  if (!queue.live) return { ok: false, error: 'queue is not live — Go Live first' };
+  if (!tokens.accessToken || !tokens.shopCipher) return { ok: false, error: 'not authorized with TikTok' };
+  const mins = Math.max(1, Math.min(1440, Number(minutes) || 30));
+  const since = Math.floor(Date.now() / 1000) - mins * 60;
+  const ids = await searchOrderIds(since, 'AWAITING_SHIPMENT');
+  let added = 0, already = 0, failed = 0;
+  for (const id of ids) {
+    if (!id) continue;
+    const existed = queue.orders && queue.orders.has(String(id));
+    const detail = await fetchOrderDetail(id);
+    if (!detail) { failed++; continue; }
+    queue.upsertOrder(detail);
+    if (existed) already++; else added++;
+  }
+  console.log(`[tiktok] backfill(${mins}m): ${ids.length} found, ${added} added, ${already} already present, ${failed} failed`);
+  return { ok: true, minutes: mins, since: new Date(since * 1000).toISOString(), found: ids.length, added, alreadyPresent: already, failed };
+}
+
+// ---------------- Poller ----------------
+export function startPolling(queue) {
+  const interval = Number(process.env.TIKTOK_POLL_MS) || 10000;
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  let sinceEpoch = nowEpoch;
+  // CRASH RECOVERY: if the service restarts mid-stream (crash, redeploy, or the
+  // poller wedging), resume the ingest window so the first poll backfills orders
+  // missed during the outage. The look-back is HARD-CAPPED (default 24h) so it
+  // can NEVER drag in stale orders: we resume from the current live's start, but
+  // never further back than the cap. upsertOrder is idempotent on order id, so
+  // nothing already in the queue is duplicated or resurrected — only
+  // genuinely-missed orders inside the window are added.
+  const capMin = Number(process.env.TIKTOK_BOOT_LOOKBACK_MIN) || 1440; // 24h cap
+  const capFloor = nowEpoch - Math.floor(capMin * 60);
+  if (queue.live && queue.sessionStartedAt) {
+    sinceEpoch = Math.max(Math.floor(queue.sessionStartedAt / 1000), capFloor);
+    console.log('[tiktok] boot: resuming ingest window from', new Date(sinceEpoch * 1000).toISOString(), `(capped at ${capMin} min back)`);
+  }
+  const seen = new Set();
+
+  // Each new live starts a fresh window: only orders placed after Go Live count.
+  queue.on('change', (e) => {
+    if (e && e.reason === 'go-live') { sinceEpoch = Math.floor(Date.now() / 1000); seen.clear(); }
+  });
+
+  let polling = false;
+  async function poll() {
+    if (!tiktokEnabled() || !queue.live || !tokens.accessToken || !tokens.shopCipher) return;
+    // Overlap guard: if the TikTok API is slow and a cycle runs long, don't let
+    // the interval stack a second poll on top of it. Overlapping cycles multiply
+    // API load, compound slowness, and can exhaust connections — so skip this
+    // tick and let the in-flight one finish.
+    if (polling) { console.log('[tiktok] poll: previous cycle still running — skipping this tick'); return; }
+    polling = true;
+    try {
+      // 1) Ingest new paid orders (awaiting shipment).
+      const ids = await searchOrderIds(sinceEpoch - 30, 'AWAITING_SHIPMENT'); // small overlap for safety
+      let fetched = 0;
+      for (const id of ids) {
+        if (!id || seen.has(id)) continue;
+        const detail = await fetchOrderDetail(id);
+        if (detail) { seen.add(id); queue.upsertOrder(detail); fetched++; }
+      }
+      // Diagnostic: how many awaiting-shipment orders TikTok returned this poll,
+      // and how many were processed this cycle. (0 returned = nothing on the
+      // TikTok side to ingest for the window.)
+      console.log(`[tiktok] poll: ${ids.length} awaiting-shipment ids returned since ${new Date((sinceEpoch - 30) * 1000).toISOString()}; ${fetched} processed this cycle`);
+      // 2) Auto-remove orders that were cancelled on TikTok after entering the
+      //    queue. cancelOrder() is a no-op unless the order is currently queued.
+      const cancelledIds = await searchOrderIds(sinceEpoch - 30, 'CANCELLED');
+      for (const id of cancelledIds) {
+        if (!id) continue;
+        if (queue.cancelOrder(id)) console.log('[tiktok] auto-cancelled order', id);
+      }
+      // 3) Refresh On Hold status for orders still queued — a buyer cancellation
+      //    request on an unshipped order flips it On Hold after it's already in
+      //    the queue. One batched detail call (ids endpoint takes up to 50).
+      const queuedIds = queue.queuedOrderIds ? queue.queuedOrderIds() : [];
+      for (let i = 0; i < queuedIds.length; i += 50) {
+        const chunk = queuedIds.slice(i, i + 50);
+        const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: chunk.join(',') });
+        for (const o of (body?.data?.orders || [])) {
+          const id = String(o.id || o.order_id);
+          if (queue.setHold(id, !!o.is_on_hold_order)) {
+            console.log('[tiktok] order', id, o.is_on_hold_order ? 'ON HOLD' : 'hold cleared');
+          }
+          // Refresh cancellation state (order-level + per-item). upsertOrder is
+          // idempotent on id, so a cancellation that lands AFTER the order is
+          // queued has to be applied here, not on re-ingest.
+          if (queue.setCancelInfo) {
+            const norm = normalizeOrder(o);
+            if (queue.setCancelInfo(id, { cancelRequested: norm.cancelRequested, items: norm.items })) {
+              console.log('[tiktok] order', id, norm.cancelRequested ? 'CANCELLATION REQUESTED' : 'cancel cleared');
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('[tiktok] poll error:', e.message); }
+    finally { polling = false; }
+  }
+  const timer = setInterval(poll, interval);
+  timer.unref?.();
+  console.log(`[tiktok] polling every ${interval}ms while live`);
+}
+
+// ---------------- Auth routes ----------------
+export function mountAuth(app, adminPath) {
+  // TikTok redirects here (Redirect URL) with an auth code after the seller approves.
+  app.get('/auth/tiktok/callback', async (req, res) => {
+    const code = req.query.code || req.query.auth_code;
+    if (!code) return res.status(400).send('Missing authorization code.');
+    try {
+      await tokenGet(code);
+      await getShopCipher();
+      res.redirect((adminPath || '/') + '?tiktok=connected');
+    } catch (e) {
+      console.error('[tiktok] auth callback error:', e.message);
+      res.status(500).send('TikTok authorization failed: ' + e.message + ' — you can close this and try again.');
+    }
+  });
+}
+
+export function tiktokStatus() {
+  return {
+    enabled: tiktokEnabled(),
+    connected: !!(tokens.accessToken && tokens.shopCipher),
+    shop: tokens.sellerName || tokens.shopId || '',
+    lastError: tokens.lastError || '',
+    authUrl: process.env.TIKTOK_AUTH_URL || '',
+  };
+}
+
+// Admin-only: expose the current live tokens so they can be pinned into Render
+// env vars (which survive free-tier spin-downs). After the seller authorizes,
+// copy these three values into the service's environment and redeploy — on the
+// next boot the app re-seeds from env and auto-refreshes, so no re-authorization
+// is ever needed. Gated behind requireAuth in server.js (never public).
+export function tiktokTokensForEnv() {
+  return {
+    connected: !!(tokens.accessToken && tokens.shopCipher),
+    shop: tokens.sellerName || tokens.shopId || '',
+    note: 'Copy the three values below into Render → Environment, then Save & redeploy. This keeps the shop connected across restarts.',
+    env: {
+      TIKTOK_ACCESS_TOKEN: tokens.accessToken || '',
+      TIKTOK_REFRESH_TOKEN: tokens.refreshToken || '',
+      TIKTOK_SHOP_CIPHER: tokens.shopCipher || '',
+    },
+  };
+}
+
+// On boot: if enabled and we have a refresh token but no/expired access token, refresh.
+export async function tiktokBoot() {
+  if (!tiktokEnabled()) { console.log('[tiktok] ingest disabled'); return; }
+  try {
+    if (tokens.refreshToken && (!tokens.accessToken || Date.now() > tokens.accessExpireAt)) {
+      await tokenRefresh();
+    }
+    if (tokens.accessToken && !tokens.shopCipher) await getShopCipher();
+  } catch (e) {
+    tokens.lastError = e.message; persist();
+    console.warn('[tiktok] boot token setup failed:', e.message);
+  }
+  console.log('[tiktok] status:', JSON.stringify(tiktokStatus()));
+}

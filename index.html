@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LTs Workshop Queue</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#272c38;
+    --text:#e8ebf2; --muted:#8b93a7; --accent:#4f8cff; --accent2:#2b6bff;
+    --pri:#ffb020; --pri-bg:#3a2c0c; --done:#25c26e; --danger:#ff5d5d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+  header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,#141824,#0f1115);
+    border-bottom:1px solid var(--line);padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;letter-spacing:.3px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--danger);display:inline-block;margin-right:6px;box-shadow:0 0 8px rgba(255,93,93,.55)}
+  .dot.live{background:var(--done);box-shadow:0 0 8px var(--done)}
+  .stats{display:flex;gap:18px;flex-wrap:wrap}
+  .hdr-link{display:inline-flex;align-items:center;text-decoration:none;background:transparent;color:var(--text);
+    border:1px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;padding:8px 12px;transition:.12s;white-space:nowrap}
+  .hdr-link:hover{filter:brightness(1.15);border-color:var(--accent)}
+  .hdr-logout{margin-left:auto}
+  .stat{text-align:center;min-width:64px}
+  .stat b{display:block;font-size:20px;line-height:1.1}
+  .stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  main{max-width:920px;margin:0 auto;padding:18px 16px 80px}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:nowrap}
+  .toolbar input{flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--text);padding:9px 12px;border-radius:9px;font-size:13px}
+  button{cursor:pointer;border:none;border-radius:9px;font-size:13px;font-weight:600;padding:9px 14px;
+    background:var(--panel2);color:var(--text);border:1px solid var(--line);transition:.12s}
+  button:hover{filter:brightness(1.15)}
+  button.primary{background:var(--accent2);border-color:var(--accent2)}
+  button.ghost{background:transparent}
+  .sectitle{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:22px 4px 10px}
+  .sectitle.collapser{cursor:pointer;user-select:none}
+  .sectitle .cav{display:inline-block;transition:transform .12s;font-size:9px;color:var(--muted)}
+  .sectitle.collapsed .cav{transform:rotate(-90deg)}
+  .secount{color:var(--muted);font-weight:700;letter-spacing:0}
+  .slot{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+  .slotmain{display:flex;align-items:center;gap:12px;padding:12px 14px}
+  .slot.new{animation:pop .18s ease}
+  .slot.priority{border-color:var(--pri);background:linear-gradient(90deg,var(--pri-bg),var(--panel))}
+  .slot.bumped{outline:2px solid var(--accent)}
+  .slot.reorder{border-color:var(--done);box-shadow:0 0 0 1px var(--done) inset}
+  @keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  /* Inline expand: full item list revealed under the row */
+  .caret{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;
+    padding:6px 9px;font-size:12px;line-height:1;flex:none;transition:transform .12s,color .12s,border-color .12s}
+  .caret:hover{color:var(--text);border-color:var(--accent)}
+  .slot.expanded .caret{transform:rotate(90deg);color:var(--accent);border-color:var(--accent)}
+  .details{display:none;border-top:1px dashed var(--line);padding:10px 16px 12px 50px}
+  .slot.expanded .details{display:block}
+  .details .di{display:flex;gap:10px;padding:4px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04)}
+  .details .di:last-of-type{border-bottom:none}
+  .details .diq{color:var(--muted);font-variant-numeric:tabular-nums;min-width:34px;font-weight:700}
+  .details .dgh{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;margin:7px 0 1px}
+  .details .dgh:first-child{margin-top:0}
+  .details .dsub{margin:9px 0 2px;font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--done);text-transform:uppercase}
+  .details .dord{color:var(--muted);font-size:11.5px;margin-top:9px;border-top:1px solid rgba(255,255,255,.06);padding-top:7px}
+  .pos{font-variant-numeric:tabular-nums;font-weight:800;font-size:18px;width:34px;text-align:center;color:var(--muted)}
+  .slot.priority .pos{color:var(--pri)}
+  .who{flex:1;min-width:0}
+  .who .name{font-weight:700;font-size:15px;display:flex;align-items:center;gap:7px;
+    min-width:0;overflow:hidden;white-space:nowrap}
+  .who .name .ordno{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:0}
+  .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.4px;
+    white-space:nowrap;flex:none}
+  .badge.pri{background:var(--pri);color:#2a1e00}
+  .badge.multi{background:#31384a;color:#cdd4e4}
+  .badge.back{background:#12303a;color:#7fdce8}
+  .badge.reorder{background:var(--done);color:#04180d;animation:pulse 1.3s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .badge.samename{background:#4a2c00;color:#ffcf87;border:1px solid var(--pri)}
+  .badge.hold{background:var(--danger);color:#fff;animation:pulse 1.3s ease-in-out infinite}
+  /* Soft, non-alarming badge for a generic TikTok hold (address/combine/sample/
+     review) — NOT a cancellation. Amber, no pulse. */
+  .badge.onhold{background:#3a2c10;color:#f0c069;border:1px solid #7a5a1e}
+  /* Red frame only for a genuine cancellation request. */
+  .slot.cancelreq{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger) inset}
+  /* Softer amber frame for a generic hold that just needs verifying. */
+  .slot.onhold{border-color:#7a5a1e;box-shadow:0 0 0 1px #7a5a1e inset}
+  /* The specific line item(s) a buyer asked to cancel, inside the expanded view. */
+  .details .di.di-cancel{background:rgba(214,64,64,.10);border-left:3px solid var(--danger);
+    padding-left:8px;margin-left:-11px;border-radius:4px}
+  .details .di.di-cancel span:not(.diq):not(.cxflag){text-decoration:line-through;color:var(--muted)}
+  .cxflag{margin-left:8px;font-size:10px;font-weight:800;letter-spacing:.3px;color:#fff;
+    background:var(--danger);border-radius:20px;padding:1px 7px;text-decoration:none;white-space:nowrap}
+  .idtag{color:var(--muted);font-size:11px;font-weight:600;flex:none}
+  .who .items{font-size:12.5px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .money{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;margin-right:4px;white-space:nowrap}
+  .actions{display:flex;gap:8px;align-items:center}
+  .actions button{padding:8px 11px}
+  .fulfill{background:var(--done);border-color:var(--done);color:#04180d;margin-left:16px}
+  .bumpb{background:transparent;color:var(--accent)}
+  /* Active-queue pagination */
+  .qpager{display:flex;align-items:center;gap:12px;justify-content:center;margin:12px 4px 4px;color:var(--muted);font-size:12.5px}
+  .qpager button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+  .qpager button:disabled{opacity:.4;cursor:default}
+  .qpager .qpinfo{font-variant-numeric:tabular-nums}
+  .pagesize{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;text-transform:none;letter-spacing:0;color:var(--muted);font-weight:600}
+  .pagesize select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:4px 8px;font-size:12.5px;font-weight:700;cursor:pointer}
+  .pagesize select:focus{outline:none;border-color:var(--accent)}
+  .labelb{background:transparent;color:#cdd4e4}
+  .removeb{background:transparent;color:var(--muted);border:1px solid transparent;padding:6px 9px;
+    font-size:14px;line-height:1;flex:none}
+  .removeb:hover{color:var(--danger);border-color:var(--danger)}
+  button.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .empty{color:var(--muted);text-align:center;padding:40px;border:1px dashed var(--line);border-radius:12px}
+  .done-row{display:flex;gap:12px;align-items:center;padding:8px 12px;color:var(--muted);font-size:13px;
+    border-bottom:1px solid var(--line)}
+  .done-row .name{color:var(--text)}
+  .cancel-row{border-left:2px solid var(--danger)}
+  .cancel-row .name{text-decoration:line-through;color:var(--muted)}
+  .undob{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;
+    font-size:12px;font-weight:600;padding:5px 10px;cursor:pointer;white-space:nowrap}
+  .undob:hover{color:var(--text);border-color:var(--accent)}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20}
+  .modal.open{display:flex}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(520px,92vw)}
+  .card h3{margin:0 0 6px}
+  .card p{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .card textarea{width:100%;height:110px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:10px;font-size:13px;font-family:inherit;resize:vertical}
+  .row{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+  .prichk{display:flex;align-items:center;gap:9px;margin-top:13px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none}
+  .prichk input{width:17px;height:17px;accent-color:var(--accent);cursor:pointer;flex:none}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{background:var(--pri-bg);color:var(--pri);border:1px solid var(--pri);border-radius:20px;padding:3px 10px;font-size:12px}
+  /* ── Stream clips (editor aid) ── */
+  .clipcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px}
+  .clip-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .clip-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .clip-title{font-size:15px;font-weight:800;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:6px}
+  .clip-cav{font-size:10px;color:var(--muted);transition:transform .15s}
+  .clipcard.collapsed .clip-cav{transform:rotate(-90deg)}
+  .clip-n{color:var(--muted);font-weight:700;font-size:13px}
+  .clipcard.collapsed .cliplist{display:none}
+  .clip-start{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .clip-start b{color:var(--text)}
+  .clip-start .run{color:var(--done);font-weight:800}
+  .clip-controls{display:flex;gap:8px;flex-wrap:wrap}
+  .clip-take{font-weight:800}
+  .clip-take:disabled{opacity:.45;cursor:not-allowed}
+  .cliplist{margin-top:12px;display:flex;flex-direction:column;gap:7px;max-height:340px;overflow-y:auto}
+  .clip-empty{color:var(--muted);font-size:13px;padding:6px 2px}
+  .cliprow{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 10px}
+  .cliprow .cidx{color:var(--muted);font-weight:800;font-variant-numeric:tabular-nums;min-width:22px;text-align:center}
+  .cliprow .cclock{background:var(--bg);border:1px solid var(--line);color:var(--text);font-size:12px;font-variant-numeric:tabular-nums;border-radius:8px;padding:5px 8px;width:120px}
+  .cliprow .cmt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;min-width:82px}
+  .cliprow .celapsed{background:var(--bg);border:1px solid var(--line);color:var(--pri);font-weight:800;font-variant-numeric:tabular-nums;
+    border-radius:8px;padding:5px 8px;width:92px;text-align:center;font-size:14px}
+  .cliprow .cnote{flex:1;min-width:120px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:5px 9px;font-size:13px}
+  .cliprow .cclock:focus,.cliprow .celapsed:focus,.cliprow .cnote:focus{outline:none;border-color:var(--accent)}
+  .cliprow .cdel{background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 7px;border-radius:7px;flex:none}
+  .cliprow .cdel:hover{color:var(--danger);border-color:var(--danger)}
+  .clab{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .start-row{display:flex;gap:10px;align-items:center;margin-top:6px}
+  .start-row input[type=time]{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px 11px;font-size:15px;font-variant-numeric:tabular-nums}
+  .start-hint{color:var(--muted);font-size:12.5px;margin-top:10px;min-height:16px}
+  .livebadge{font-size:10px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:20px;
+    background:#3a2020;color:#ff8b8b;vertical-align:middle;margin-left:6px}
+  .livebadge.on{background:#12331f;color:#43e08a;box-shadow:0 0 8px rgba(67,224,138,.4)}
+  .ttbadge{font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:20px;vertical-align:middle;margin-left:4px}
+  .ttbadge.ok{background:#0e2a44;color:#6fb3ff}
+  .ttbadge.bad{background:#3a2020;color:#ff8b8b}
+  /* Live-feed connection indicator. Red + pulsing when the feed is down so a
+     stale (frozen) page is instantly obvious; calm green when connected. */
+  .conn{font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:20px;
+    vertical-align:middle;margin-left:4px;background:#3a2020;color:#ff8b8b;animation:pulse 1.3s ease-in-out infinite}
+  .conn.ok{background:#12331f;color:#43e08a;animation:none}
+  .tt-banner a{color:#ffd7d7;font-weight:700}
+  button.livebtn{background:var(--done);border-color:var(--done);color:#04180d;font-weight:800}
+  button.livebtn.off{background:#c23b3b;border-color:#c23b3b;color:#fff}
+  .offline-banner{background:#2a1a1a;border:1px solid #5a2a2a;color:#ffb3b3;border-radius:11px;
+    padding:11px 14px;margin:6px 0 14px;font-size:13px}
+  .ordno{color:#748099;font-variant-numeric:tabular-nums;font-size:11.5px;margin-right:6px}
+  /* Live per-slot timers */
+  .qtime{font-size:11.5px;color:#8b93a7;margin-top:3px;font-variant-numeric:tabular-nums}
+  .qtime .qtop{color:var(--pri,#ffb020);font-weight:700}
+  /* Expanded buyer cross-check line */
+  .dwho{font-size:12px;color:#9aa3b6;margin-top:8px;padding-top:8px;border-top:1px dashed #272c38}
+  .dwho b{color:#e8ebf2}
+  /* Variant counter admin card — fixed to the left margin so it never pushes the
+     queue down. Falls back to inline (stacked) when the window is too narrow. */
+  /* Anchor the card just to the LEFT of the centered queue column (main is
+     max-width 920, so its left edge sits at 50% - 460px). This keeps it beside
+     the content instead of jammed against the browser's left edge. */
+  #variants-admin{position:fixed;right:calc(50% + 484px);top:150px;width:266px;max-height:calc(100vh - 170px);
+    overflow:auto;z-index:4}
+  @media (max-width:1499px){#variants-admin{position:static;width:auto;max-height:none;margin:6px 0 14px}}
+  .vcard{background:#171a21;border:1px solid #272c38;border-radius:12px;padding:12px 14px}
+  .vcard h3{margin:0 0 4px;font-size:13px}
+  .vcard .vsub{color:#8b93a7;font-size:11px;line-height:1.35;margin:0 0 10px}
+  .vrow{padding:8px 0;border-top:1px solid #21262f}
+  .vrow:first-of-type{border-top:none}
+  .vrow .vlab{font-weight:700;font-size:13px;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vctl{display:flex;align-items:center;gap:6px}
+  .vrow input{width:58px;background:#1d212b;border:1px solid #272c38;color:#e8ebf2;padding:6px 8px;border-radius:8px;font-size:14px;text-align:center;font-variant-numeric:tabular-nums}
+  .vrow .vsave{background:#2b6bff;border:none;color:#fff;font-weight:700;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer}
+  .vrow .vsave.saved{background:#25c26e}
+  .vrow .vreset{background:#2a1a1a;border:1px solid #5a2a2a;color:#ff9b9b;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;margin-left:auto}
+  .vrow .vreset:hover{background:#3a2020}
+  .vlogwrap{margin-top:10px;border-top:1px solid #21262f;padding-top:8px}
+  .vlogwrap summary{cursor:pointer;color:#8b93a7;font-size:11.5px;font-weight:700;list-style:none}
+  .vlogwrap summary::-webkit-details-marker{display:none}
+  .vlog{margin-top:7px;max-height:150px;overflow:auto;font-size:11px;line-height:1.5;color:#9aa3b6;font-variant-numeric:tabular-nums}
+  .vlog .lr{padding:2px 0;border-top:1px dashed #21262f}
+  .vlog .lr:first-child{border-top:none}
+  .vlog .lr b{color:#e8ebf2}
+  .vlog .lr .rst{color:#ff9b9b;font-weight:700}
+
+  /* ---------------------------------------------------------------------------
+     Mobile / narrow-screen layout. The panel is built for a wide desktop; on a
+     phone the toolbar and each order row have too many controls for one line, so
+     we let them wrap and give the primary actions big, thumb-friendly targets.
+     Nothing here changes behaviour — it only reflows the existing elements.
+     --------------------------------------------------------------------------- */
+  @media (max-width:640px){
+    header{padding:11px 13px;gap:9px}
+    header h1{font-size:16px;flex:1 1 100%;order:0}
+    .hdr-link{padding:7px 11px;font-size:12.5px}
+    .stats{gap:12px;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;
+      scrollbar-width:none}
+    .stats::-webkit-scrollbar{display:none}
+    .stat{min-width:52px}
+    .stat b{font-size:17px}
+    .stat span{font-size:10px}
+    main{padding:14px 12px 90px}
+
+    /* Toolbar: stack the two things you touch most (Go Live, search) full-width,
+       then let the secondary buttons share rows. */
+    .toolbar{flex-wrap:wrap;gap:8px}
+    .toolbar #liveBtn{flex:1 1 100%;padding:14px;font-size:15px}
+    .toolbar input{flex:1 1 100%;padding:12px;font-size:15px}
+    .toolbar > button.ghost{flex:1 1 40%}
+    .toolbar > a{flex:1 1 40%;display:flex}
+    .toolbar > a > button{width:100%}
+
+    /* Order rows: wrap onto two zones — an info line (position, buyer, price) and
+       a full-width action row underneath. */
+    .slotmain{flex-wrap:wrap;gap:8px;padding:11px 12px;row-gap:9px}
+    .pos{order:1;width:24px;font-size:16px}
+    .who{order:2;flex:1 1 auto;min-width:0}
+    .who .name{white-space:normal;flex-wrap:wrap;font-size:15px}
+    .who .name .ordno{flex:0 1 auto}
+    .money{order:3;margin:0 0 0 auto;font-size:15px}
+    .removeb{order:4}
+    .caret{order:5}
+    .labelb{order:6;font-size:12px;padding:8px 10px}
+    .actions{order:7;flex:1 1 100%;gap:8px;margin-top:2px}
+    .actions button{flex:1;padding:13px 10px;font-size:14px}
+    .fulfill{margin-left:0}
+    .details{padding:10px 14px 12px 14px}
+    .details .di.di-cancel{margin-left:0}
+
+    /* Section headers with an inline button (Export CSV) keep the button reachable. */
+    .sectitle .ghost{padding:7px 10px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span id="dot" class="dot"></span>LTs Workshop Queue <span id="liveBadge" class="livebadge">OFFLINE</span> <span id="ttStatus" class="ttbadge" style="display:none"></span> <span id="connDot" class="conn ok" title="Live feed connected">● Live feed</span></h1>
+  <a href="/guide" target="_blank" class="hdr-link">📖 Guide ↗</a>
+  <a href="{{ADMIN}}/logout" class="hdr-link hdr-logout">Log out</a>
+  <div class="stats">
+    <div class="stat"><b id="s-active">0</b><span>In queue</span></div>
+    <div class="stat"><b id="s-pri">0</b><span>Priority</span></div>
+    <div class="stat"><b id="s-val">$0</b><span>Queue value</span></div>
+    <div class="stat"><b id="s-done">0</b><span>Fulfilled</span></div>
+    <div class="stat"><b id="s-avgq">—</b><span>Avg in queue</span></div>
+    <div class="stat"><b id="s-avgt">—</b><span>Avg at top</span></div>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <button id="liveBtn" class="livebtn" onclick="toggleLive()">● Go Live</button>
+    <input id="search" placeholder="Search buyer or order # (full or last digits)…" oninput="render()" />
+    <button class="ghost" onclick="openPriority()">⭐ Priority items</button>
+    <button class="ghost" onclick="resetQueue()">Reset</button>
+    <a href="{{ADMIN}}/history" style="text-decoration:none"><button class="ghost">🗂 Past streams ↗</button></a>
+    <a href="/" target="_blank" style="text-decoration:none"><button class="ghost">Public view ↗</button></a>
+  </div>
+
+  <div class="chips" id="pri-chips"></div>
+
+  <div class="clipcard" id="clips-admin">
+    <div class="clip-top">
+      <div class="clip-head">
+        <span class="clip-title" onclick="toggleClips()" title="Collapse / expand the clip list"><span class="clip-cav">▾</span>🎬 Stream Clips <span class="clip-n" id="clip-n"></span></span>
+        <span class="clip-start" id="clip-startlbl">Start time not set</span>
+      </div>
+      <div class="clip-controls">
+        <button class="ghost" onclick="openStreamStart()">🕐 Set start time</button>
+        <button class="primary clip-take" id="clip-take" onclick="timeClip()" disabled title="Set the stream start time first">✂ Time Clip</button>
+        <button class="ghost" id="clip-copy" onclick="copyClips()">⧉ Copy list</button>
+        <button class="ghost" id="clip-clear" onclick="clearClipsUI()">Clear all</button>
+      </div>
+    </div>
+    <div class="cliplist" id="cliplist"></div>
+  </div>
+
+  <div id="variants-admin"></div>
+
+  <div id="offline-banner" class="offline-banner" style="display:none">
+    ⚫ You're <b>offline</b> — new orders are being ignored and won't enter the queue. Hit <b>Go Live</b> to start a fresh queue and begin accepting orders.
+  </div>
+
+  <div id="tt-banner" class="offline-banner" style="display:none"></div>
+
+  <div class="sectitle" style="display:flex;align-items:center;gap:10px">
+    <span>Active queue — top is next</span>
+    <label class="pagesize">Show
+      <select id="page-size" onchange="setQueuePageSize(this.value)">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+      per page
+    </label>
+  </div>
+  <div id="queue"></div>
+  <div id="queue-pager" class="qpager" style="display:none"></div>
+
+  <div class="sectitle collapser" id="fhead" onclick="toggleSection('fulfilled')" style="display:flex;align-items:center;gap:8px">
+    <span class="cav">▾</span><span>Fulfilled this stream</span><span class="secount" id="f-count"></span>
+    <a href="/api/export" style="text-decoration:none;margin-left:auto" onclick="event.stopPropagation()"><button class="ghost">⬇ Export CSV</button></a>
+  </div>
+  <div id="fulfilled"></div>
+
+  <div class="sectitle collapser" id="chead" onclick="toggleSection('cancelled')" style="display:flex;align-items:center;gap:8px">
+    <span class="cav">▾</span><span>Cancelled this stream</span><span class="secount" id="c-count"></span>
+  </div>
+  <div id="cancelled"></div>
+</main>
+
+<div class="modal" id="confirmModal">
+  <div class="card">
+    <h3 id="cm-title">Confirm</h3>
+    <p id="cm-body"></p>
+    <div class="row">
+      <button class="ghost" id="cm-cancel">Cancel</button>
+      <button class="primary" id="cm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="card">
+    <h3>Priority items</h3>
+    <p>Any order containing one of these (matched inside the item name or SKU) jumps to the top of the queue. One per line. Example: <em>break</em>, <em>slab</em>, <em>PSA 10</em>.</p>
+    <textarea id="pri-input" placeholder="break&#10;slab&#10;box break"></textarea>
+    <label class="prichk"><input type="checkbox" id="pri-show-chips" onchange="togglePriChips()" checked> Show the active keyword chips on the admin page</label>
+    <div class="row">
+      <button class="ghost" onclick="closePriority()">Cancel</button>
+      <button class="primary" onclick="savePriority()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="startModal">
+  <div class="card">
+    <h3>Stream start time</h3>
+    <p>The start is set automatically when you go live — edit here only to correct it. Enter the time in <b>your local time</b>; it's recorded and shown in <b>Eastern (ET)</b>. Clip elapsed times are measured from this.</p>
+    <div class="start-row">
+      <input type="time" id="start-input" step="1" oninput="updateStartHint()" />
+      <button class="ghost" type="button" onclick="startInputToNow()">Use now</button>
+    </div>
+    <p class="start-hint" id="start-hint"></p>
+    <div class="row">
+      <button class="ghost" onclick="closeStreamStart()">Cancel</button>
+      <button class="ghost" onclick="clearStreamStart()" style="border-color:var(--danger);color:var(--danger)">Clear start</button>
+      <button class="primary" onclick="saveStreamStart()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Live-feed connection. Explicit reconnection settings so the panel NEVER
+  // gives up trying to get back on the feed (default backoff, unlimited tries).
+  const socket = io('/panel', {
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+  });
+  let state = { queue: [], fulfilled: [], stats: {}, config: { priorityItems: [] } };
+
+  // ---- Live-feed resilience -------------------------------------------------
+  // The queue is driven by this socket feed. If the feed silently drops — the
+  // tab was backgrounded, the laptop slept, wifi blipped, or the instance
+  // recycled — the page would otherwise sit on stale data and look "frozen"
+  // (this is exactly what happened overnight: the server was fine, the page's
+  // feed had quietly died). These handlers reconnect, pull a fresh snapshot the
+  // moment we're back, and show a clear status so a stale page is never mistaken
+  // for a live one.
+  let __lastState = Date.now();
+  function setConn(ok){
+    const el = document.getElementById('connDot');
+    if(!el) return;
+    el.className = 'conn' + (ok ? ' ok' : '');
+    el.textContent = ok ? '● Live feed' : '● Reconnecting…';
+    el.title = ok ? 'Live feed connected — orders update in real time.'
+                  : 'Live feed lost — trying to reconnect. Orders shown may be out of date until this turns green.';
+  }
+  async function resync(){
+    // Belt-and-suspenders: pull current state over HTTP so we recover even if the
+    // socket is slow to re-emit after a reconnect.
+    try{
+      const s = await fetch('/api/state', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+      if(s){ state = s; __lastState = Date.now(); render(); }
+    }catch(e){}
+  }
+  socket.on('state', (s) => { state = s; __lastState = Date.now(); setConn(true); render(); });
+  socket.on('connect', () => { setConn(true); resync(); });
+  socket.on('disconnect', () => { setConn(false); });
+  socket.io.on('reconnect', () => { setConn(true); resync(); });
+  socket.io.on('reconnect_attempt', () => { setConn(false); });
+  socket.on('connect_error', () => { setConn(false); });
+  // When the operator comes back to the tab or the network returns, force a
+  // reconnect + resync right away instead of waiting on backoff timers that the
+  // browser throttles while a tab is hidden (the usual overnight-freeze cause).
+  function kick(){ try{ if(!socket.connected) socket.connect(); }catch(e){} resync(); }
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') kick(); });
+  window.addEventListener('online', kick);
+  window.addEventListener('focus', kick);
+  // Safety net: if too long passes with no fresh state, treat the feed as stale
+  // and force a resync (covers "zombie" sockets that think they're still alive).
+  setInterval(() => { if(Date.now() - __lastState > 45000) kick(); }, 15000);
+
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+  function money(n){return '$'+Number(n||0).toFixed(2);}
+  // Shortened order # for the compact queue rows — last 8 digits, with a leading
+  // ellipsis so it's clearly a partial. Full numbers stay in the expanded view,
+  // the printed label, and the CSV export.
+  function shortId(id){ const s=String(id); return s.length>8 ? '…'+s.slice(-8) : s; }
+  // Human duration from milliseconds: "0s", "45s", "2m 14s", "1h 03m".
+  function fmtDur(ms){
+    if(ms==null || isNaN(ms) || ms<0) return '—';
+    const s=Math.floor(ms/1000);
+    if(s<60) return s+'s';
+    const m=Math.floor(s/60), ss=s%60;
+    if(m<60) return m+'m '+String(ss).padStart(2,'0')+'s';
+    const h=Math.floor(m/60), mm=m%60;
+    return h+'h '+String(mm).padStart(2,'0')+'m';
+  }
+
+  async function post(url){ await fetch(url,{method:'POST'}); }
+  function fulfill(key){ post('/api/fulfill/'+encodeURIComponent(key)); }
+  function bump(key){ post('/api/bump/'+encodeURIComponent(key)); }
+
+  // Deliberate confirmation modal (returns a Promise<boolean>). Used for the
+  // destructive actions — Reset, End Live, Remove — so they can't be blown
+  // through by a stray click the way a native confirm() sometimes can.
+  function uiConfirm({title, body, confirmText='Confirm', danger=false}){
+    return new Promise((resolve)=>{
+      const m=document.getElementById('confirmModal');
+      document.getElementById('cm-title').textContent=title;
+      document.getElementById('cm-body').textContent=body;
+      const ok=document.getElementById('cm-ok');
+      const cancel=document.getElementById('cm-cancel');
+      ok.textContent=confirmText;
+      ok.className = danger ? 'danger' : 'primary';
+      m.classList.add('open');
+      const done=(v)=>{ m.classList.remove('open'); ok.onclick=null; cancel.onclick=null; resolve(v); };
+      ok.onclick=()=>done(true);
+      cancel.onclick=()=>done(false);
+    });
+  }
+
+  // Remove an order from the queue without fulfilling it (e.g. buyer cancelled).
+  async function removeOrder(key){
+    if(await uiConfirm({title:'Remove this order from the queue?',
+      body:'Use this if the buyer cancelled. The order leaves the queue and is NOT counted as fulfilled or exported.',
+      confirmText:'Remove order', danger:true}))
+      await post('/api/remove/'+encodeURIComponent(key));
+  }
+  // Undo an accidental fulfill: move the order back into the active queue.
+  async function reopenOrder(key){
+    try {
+      const r = await fetch('/api/reopen/'+encodeURIComponent(key), {method:'POST'});
+      const j = await r.json().catch(()=>({}));
+      if(!j.ok) alert("Couldn't undo this one — that buyer already has a newer order in the queue, so it can't merge back automatically.");
+    } catch(e){ /* ignore */ }
+  }
+
+  // --- Thermal bag label (2.25" x 1.25") ---
+  // Renders username + order number(s) into an off-screen iframe whose page size
+  // is locked to the label, auto-shrinks the text to fit, and opens the print
+  // dialog. Pick your thermal printer there (set it as default to make it 1 click).
+  function printLabel(key){
+    const e = (state.queue||[]).find(x=>x.key===key);
+    if(!e) return;
+    const uname = e.buyer || 'Buyer';
+    const ords = (e.orderIds||[]);
+    const ordLine = ords.map(id=>'#'+id).join('   ');
+    const countLine = (e.orderCount>1) ? (e.orderCount+' orders in this batch') : '';
+    // Thermal printers only lay down BLACK, and browsers skip background fills
+    // unless "Background graphics" is on — so flags are black text in a black
+    // outline (no fill, no emoji) to guarantee they print. Multiple can stack.
+    const flags = [];
+    if(e.priorFulfilled>0) flags.push('EARLIER ORDERS TODAY');
+    // Same-name distinction: if another buyer in the queue shares this exact
+    // display name, print a last-4 id tag so the right bag goes to the right person.
+    const dupe = (state.queue||[]).some(x=>(x.buyer||'').toLowerCase()===uname.toLowerCase() && x.buyerId!==e.buyerId);
+    const idTag = dupe ? ('id …'+String(e.buyerId||'').slice(-4)) : '';
+    const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      @page{size:2.25in 1.25in;margin:0}
+      html,body{margin:0;padding:0;width:2.25in;height:1.25in}
+      body{display:flex;flex-direction:column;justify-content:center;align-items:center;
+        box-sizing:border-box;padding:0.05in 0.08in;font-family:Arial,Helvetica,sans-serif;
+        text-align:center;color:#000;background:#fff;overflow:hidden}
+      .flag{border:1.5px solid #000;color:#000;background:#fff;font-weight:800;font-size:8.5px;
+        padding:1px 6px;border-radius:3px;letter-spacing:.4px;margin-bottom:3px;white-space:nowrap}
+      .uname{font-weight:800;line-height:1.03;word-break:break-word;max-width:100%}
+      .idtag{font-size:8px;font-weight:700;color:#000;margin-top:1px}
+      .count{font-size:10px;font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+      .ord{margin-top:5px;font-family:'Courier New',monospace;font-weight:700;line-height:1.15;
+        word-break:break-all;max-width:100%}
+    </style></head><body>
+      ${flags.map(f=>`<div class="flag">${esc(f)}</div>`).join('')}
+      <div class="uname" id="u">${esc(uname)}</div>
+      ${idTag?`<div class="idtag">${esc(idTag)}</div>`:''}
+      ${countLine?`<div class="count">${esc(countLine)}</div>`:''}
+      ${ordLine?`<div class="ord" id="o">${esc(ordLine)}</div>`:''}
+      <script>(function(){
+        function shrinkWidth(el,start,min){var s=start;el.style.fontSize=s+'px';
+          while(s>min && el.scrollWidth>el.clientWidth){s--;el.style.fontSize=s+'px';}return s;}
+        var b=document.body;
+        var u=document.getElementById('u');var o=document.getElementById('o');
+        // Username: prefer it on ONE line — force no-wrap and shrink to fit the
+        // width. Only if it's still too wide at the floor do we allow a wrap,
+        // so normal names never break mid-word (e.g. "test_collector").
+        u.style.whiteSpace='nowrap';
+        var us=shrinkWidth(u,30,13);
+        if(u.scrollWidth>u.clientWidth){ u.style.whiteSpace='normal'; } // very long name -> wrap at floor
+        var os=o?shrinkWidth(o,13,7):0;
+        // Overall height fit (rare, e.g. many order numbers): shrink the order
+        // line first, then the name. overflow:hidden clips anything left over so
+        // a label never bleeds past its 2.25x1.25 area.
+        var guard=0;
+        while(b.scrollHeight>b.clientHeight && guard<120){
+          if(o && os>7){ os--; o.style.fontSize=os+'px'; }
+          else if(us>9){ us--; u.style.fontSize=us+'px'; }
+          else break;
+          guard++;
+        }
+        window.focus();
+        setTimeout(function(){window.print();},60);
+      })();<\/script>
+    </body></html>`;
+    let f = document.getElementById('labelFrame');
+    if(!f){
+      f = document.createElement('iframe');
+      f.id = 'labelFrame';
+      f.style.cssText = 'position:fixed;left:-10000px;top:0;width:2.4in;height:1.4in;border:0;background:#fff';
+      document.body.appendChild(f);
+    }
+    f.srcdoc = doc;
+  }
+  async function toggleLive(){
+    const live = (state.stats||{}).live;
+    if(!live){
+      if(!(await uiConfirm({title:'Start a new live?',
+        body:'This starts a fresh stream and begins accepting new orders. The clip timer starts now and the clip log is cleared for the new stream. Anything left from a previous stream that wasn\'t ended is archived to Past streams first.',
+        confirmText:'Go live', danger:false}))) return;
+      await post('/api/live/on');
+    } else {
+      const n = (state.stats||{}).activeCount||0;
+      const body = n>0
+        ? `You still have ${n} order${n===1?'':'s'} in the queue that ${n===1?"hasn't":"haven't"} been fulfilled. Ending will archive EVERYTHING (fulfilled, cancelled, and those ${n} unfulfilled) to Past streams and clear the board. New orders stop entering.`
+        : 'This archives this stream (fulfilled + cancelled) to Past streams and clears the board. New orders stop entering. You can review or export it anytime from Past streams.';
+      if(!(await uiConfirm({title:'End the live?', body, confirmText:'End live', danger:true}))) return;
+      await post('/api/live/off');
+    }
+  }
+  async function resetQueue(){
+    if(await uiConfirm({title:'Reset the entire queue?',
+      body:'This clears every active AND fulfilled order for the current stream. Priority words are kept. This cannot be undone.',
+      confirmText:'Yes, reset everything', danger:true}))
+      await post('/api/reset');
+  }
+
+  // Show/hide the active priority-keyword chip row on the admin page. Preference
+  // is per-device (localStorage); default is shown. Toggling only affects the
+  // chip display — it never changes which keywords are active.
+  function applyPriChipsPref(){
+    let hidden = false;
+    try{ hidden = localStorage.getItem('adminPriChipsHidden') === '1'; }catch(e){}
+    const box = document.getElementById('pri-chips'); if(box) box.style.display = hidden ? 'none' : '';
+    const cb = document.getElementById('pri-show-chips'); if(cb) cb.checked = !hidden;
+  }
+  function togglePriChips(){
+    const cb = document.getElementById('pri-show-chips');
+    const hidden = cb ? !cb.checked : false;
+    try{ localStorage.setItem('adminPriChipsHidden', hidden ? '1' : '0'); }catch(e){}
+    const box = document.getElementById('pri-chips'); if(box) box.style.display = hidden ? 'none' : '';
+  }
+  function openPriority(){
+    document.getElementById('pri-input').value = (state.config.priorityItems||[]).join('\n');
+    applyPriChipsPref();
+    document.getElementById('modal').classList.add('open');
+  }
+  function closePriority(){ document.getElementById('modal').classList.remove('open'); }
+  async function savePriority(){
+    const items = document.getElementById('pri-input').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    await fetch('/api/priority-items',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({items})});
+    closePriority();
+  }
+
+  // --- In-place list rendering so updates don't flash ---
+  const slotNodes = new Map(); // key -> element (reused across updates)
+  const expandedKeys = new Set(); // slots the user has expanded to see all items
+  let fulfilledSig = '';
+  let cancelledSig = '';
+
+  // Collapse/expand the Fulfilled + Cancelled sections (state kept in memory so
+  // it persists across live updates).
+  let fulfilledCollapsed=false, cancelledCollapsed=false;
+  function toggleSection(which){
+    if(which==='fulfilled') fulfilledCollapsed=!fulfilledCollapsed; else cancelledCollapsed=!cancelledCollapsed;
+    applyCollapse();
+  }
+  function applyCollapse(){
+    const fEl=document.getElementById('fulfilled'), cEl=document.getElementById('cancelled');
+    const fh=document.getElementById('fhead'), ch=document.getElementById('chead');
+    if(fEl) fEl.style.display=fulfilledCollapsed?'none':'';
+    if(fh) fh.classList.toggle('collapsed',fulfilledCollapsed);
+    if(cEl) cEl.style.display=cancelledCollapsed?'none':'';
+    if(ch) ch.classList.toggle('collapsed',cancelledCollapsed);
+  }
+
+  // Toggle the inline "all items" panel for a slot. Purely visual — flips a
+  // class, so it survives live updates (we re-apply from expandedKeys on render).
+  function toggleExpand(key){
+    if(expandedKeys.has(key)) expandedKeys.delete(key); else expandedKeys.add(key);
+    const node = slotNodes.get(key);
+    if(node) node.classList.toggle('expanded', expandedKeys.has(key));
+  }
+
+  function slotInner(e){
+    const itemStr = e.items.map(i=>`${i.qty}× ${i.name}`).join(', ');
+    const priBadge = e.isPriority?'<span class="badge pri">PRIORITY</span>':'';
+    const countBadge = `<span class="badge multi">${e.orderCount} order${e.orderCount===1?'':'s'}</span>`;
+    // Loud heads-up: this buyer ordered AGAIN while already at the top (bag likely
+    // in progress). Only flash it while they're CURRENTLY #1 — the one being
+    // packed right now; if a bump/priority pushes them down it stops flashing.
+    const raCount = e.reorderedAtTopCount || 0;
+    const reorderBadge = (raCount > 0 && e.position === 1)
+      ? `<span class="badge reorder" title="This buyer ordered again while at the TOP of the queue — they likely have a bag being packed. Add the new item(s) to it. The ×N counts how many times they've added while at the top, so a higher number means more came in since you last checked.">＋ ADDED MORE${raCount>1?' ×'+raCount:''}</span>` : '';
+    const backBadge = (e.priorFulfilled>0)
+      ? `<span class="badge back" title="This buyer already had ${e.priorFulfilled} order(s) fulfilled earlier this stream — check whether this should be combined">🔁 ${e.priorFulfilled} earlier today</span>` : '';
+    // Two different buyers sharing an identical display name — flag + id tag.
+    const dupBadge = e._dupName ? `<span class="badge samename" title="Another buyer in the queue has this exact display name — these are different people. Use the order numbers / id to keep them separate.">⚠ SAME NAME</span>` : '';
+    // A genuine cancellation was requested (whole order, or a specific item that's
+    // highlighted in the expanded view). This is the loud red one.
+    const cancelBadge = e.cancelRequested ? `<span class="badge hold" title="A cancellation was requested for this order — expand it to see exactly which item(s). Do NOT ship / seal the bag until you've pulled the cancelled item(s).">⚠ CANCEL REQ</span>` : '';
+    // TikTok put the order On Hold for some OTHER reason (address check, order
+    // combine/split, sample/exchange, or a pending review). Not a cancellation —
+    // just a soft heads-up to verify before shipping. Suppressed if a real cancel
+    // is already flagged.
+    const holdBadge = (!e.cancelRequested && e.onHold) ? `<span class="badge onhold" title="TikTok has this order ON HOLD — this is NOT necessarily a cancellation. Common reasons: address check, order combine/split, sample or exchange order, or a pending review. Verify before shipping.">⏸ ON HOLD — verify</span>` : '';
+    const idTag = e._dupName ? `<span class="idtag" title="Buyer id (last 4) — tells same-named buyers apart">id …${esc(e._idTag)}</span>` : '';
+    const ordNos = `<span class="ordno">${e.orderIds.map(id=>'#'+esc(shortId(id))).join(' ')}</span>`;
+    // Expanded view: items grouped by order number, with anything the buyer added
+    // after hitting #1 pulled out under a green "Added since top of queue" header.
+    const lines = e.orderLines || e.orderIds.map(id=>({id, items:e.items, addedSinceTop:false}));
+    const multi = lines.length > 1;
+    const itemRow = (i)=>`<div class="di${i.cancelled?' di-cancel':''}"><span class="diq">${i.qty}×</span><span>${esc(i.name)}</span>${i.cancelled?'<span class="cxflag">⚠ CANCEL REQUESTED</span>':''}</div>`;
+    const groupHtml = (l)=> (multi?`<div class="dgh">#${esc(shortId(l.id))}</div>`:'') + (l.items||[]).map(itemRow).join('');
+    const base = lines.filter(l=>!l.addedSinceTop);
+    const added = lines.filter(l=>l.addedSinceTop);
+    let detailItems = base.map(groupHtml).join('');
+    if(added.length){
+      detailItems += `<div class="dsub">＋ Added since top of queue</div>` + added.map(groupHtml).join('');
+    }
+    const detailOrds = `<div class="dord">Full order number${e.orderIds.length>1?'s':''}: ${e.orderIds.map(id=>'#'+esc(id)).join('  ')}</div>`;
+    return `<div class="slotmain">`
+      + `<button class="removeb" title="Remove from queue (e.g. buyer cancelled)" onclick="removeOrder('${e.key}')">✕</button>`
+      + `<div class="pos">${e.position}</div>`
+      + `<div class="who"><div class="name">${esc(e.buyer)} ${idTag} ${priBadge} ${countBadge} ${cancelBadge} ${holdBadge} ${reorderBadge} ${dupBadge} ${backBadge} ${ordNos}</div>`
+      + `<div class="items">${esc(itemStr)}</div>`
+      + `<div class="qtime"><span class="qtimer" data-key="${esc(e.key)}" data-since="${e.firstOrderAt||''}"></span></div></div>`
+      + `<button class="caret" title="Show/hide every item in this order" onclick="toggleExpand('${e.key}')">▸</button>`
+      + `<button class="labelb" title="Print 2.25×1.25 label" onclick="printLabel('${e.key}')">🏷 Label</button>`
+      + `<div class="money">${money(e.total)}</div>`
+      + `<div class="actions">${(e.bumped||e.position===1)?'':`<button class="bumpb" title="Bump to top" onclick="bump('${e.key}')">▲</button>`}`
+      + `<button class="fulfill" onclick="fulfill('${e.key}')">✓ Fulfilled</button></div>`
+      + `</div>`
+      + `<div class="details">${detailItems}${detailOrds}</div>`;
+  }
+  function slotSig(e){
+    return [e.position,e.buyer,e.buyerHandle||'',e.isPriority,e.bumped,e.orderCount,e.total,e.priorFulfilled||0,
+      e.reorderedAtTop?1:0,e.reorderedAtTopCount||0,e.onHold?1:0,e.cancelRequested?1:0,e._dupName?1:0,e._idTag||'',
+      e.firstOrderAt||'',e.reachedTopAt||'',
+      e.orderIds.join(','),e.items.map(i=>i.qty+'x'+i.name+(i.cancelled?'!x':'')).join('|')].join('~');
+  }
+  // Tick every live slot's timer text in place (no re-render, so it never fights
+  // the diff). "In queue" = since first order; "at top" = since it hit #1.
+  function tickTimers(){
+    const now = Date.now();
+    const topKey = window.__topKey || null;
+    const topSince = window.__topSince || 0;
+    document.querySelectorAll('.qtimer').forEach(el=>{
+      const since = Number(el.dataset.since)||0;
+      if(!since){ el.textContent=''; return; }
+      let html = '⏱ in queue '+fmtDur(now-since);
+      // "at top" only runs for whoever is CURRENTLY #1, timed from when they took
+      // the top spot — so a slot bumped down by a priority order stops showing it
+      // and restarts if it returns to #1.
+      if(topSince && el.dataset.key === topKey){
+        html += ' &nbsp;·&nbsp; <span class="qtop">at top '+fmtDur(now-topSince)+'</span>';
+      }
+      el.innerHTML = html;
+    });
+    // Live "running for" clock on the Stream Clips card (updates every second
+    // without rebuilding the clip list).
+    const runEl = document.getElementById('clip-run');
+    // Tick the running clock only while live; when offline it stays frozen at the
+    // total the last renderClips computed (end − start).
+    if(runEl && window.__streamStart && window.__live){ runEl.textContent = fmtElapsedHMS(now - window.__streamStart); }
+  }
+  setInterval(tickTimers, 1000);
+
+  // ───────────────────────── Stream clips (editor aid) ─────────────────────────
+  // You TYPE times in the operator's LOCAL timezone (whatever clock you're looking
+  // at — e.g. Pacific), and everything is RECORDED / DISPLAYED in Eastern (the
+  // store's timezone). Elapsed times (what the editor uses) are the same in any tz.
+  const ET = 'America/New_York'; // record/display timezone (auto EST/EDT)
+  async function postClip(url, body){ return fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}); }
+  function fmtETclock(ms){
+    if(!ms) return '—';
+    try{ return new Date(Number(ms)).toLocaleTimeString('en-US',{timeZone:ET,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}); }
+    catch(e){ return '—'; }
+  }
+  // Local wall time "HH:MM:SS" (24h) for a given epoch — used to seed the editable
+  // clip-time inputs.
+  function clockHMS(ms){
+    const d=new Date(Number(ms));
+    return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  }
+  function fmtElapsedHMS(ms){
+    if(ms==null||isNaN(ms)) return '0:00:00';
+    let s=Math.max(0,Math.floor(ms/1000));
+    const h=Math.floor(s/3600); s-=h*3600; const m=Math.floor(s/60); s-=m*60;
+    return h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }
+  function parseElapsed(str){
+    const parts=String(str).trim().split(':').map(x=>x.trim());
+    if(!parts.length || parts.some(p=>p==='' || isNaN(Number(p)))) return null;
+    let h=0,m=0,s=0;
+    if(parts.length===3){ h=+parts[0]; m=+parts[1]; s=+parts[2]; }
+    else if(parts.length===2){ m=+parts[0]; s=+parts[1]; }
+    else if(parts.length===1){ s=+parts[0]; }
+    else return null;
+    if([h,m,s].some(n=>isNaN(n)||n<0)) return null;
+    return ((h*3600)+(m*60)+s)*1000;
+  }
+  // Current LOCAL wall time as "HH:MM:SS" (24h) for the <input type=time>.
+  function mtNowHMS(){
+    const d=new Date();
+    return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  }
+  // Convert an HH:MM:SS wall-clock time on today's LOCAL date to epoch ms.
+  function mtWallToEpoch(h,m,s){
+    const d=new Date();
+    d.setHours(h||0, m||0, s||0, 0);
+    return d.getTime();
+  }
+
+  function openStreamStart(){
+    const inp=document.getElementById('start-input');
+    if(state.streamStartAt){
+      inp.value=clockHMS(state.streamStartAt);
+    } else { inp.value=mtNowHMS(); }
+    updateStartHint();
+    document.getElementById('startModal').classList.add('open');
+  }
+  function closeStreamStart(){ document.getElementById('startModal').classList.remove('open'); }
+  function startInputToNow(){ document.getElementById('start-input').value=mtNowHMS(); updateStartHint(); }
+  function startEpochFromInput(){
+    const v=document.getElementById('start-input').value; if(!v) return null;
+    const [h,m,s]=v.split(':').map(Number); return mtWallToEpoch(h,m,s||0);
+  }
+  function updateStartHint(){
+    const at=startEpochFromInput(); const hint=document.getElementById('start-hint');
+    if(at==null){ hint.textContent=''; return; }
+    const ago=Date.now()-at;
+    hint.textContent='Start = '+fmtETclock(at)+' ET  ('+(ago<0?'⚠ in the future — check the time':'about '+fmtElapsedHMS(ago)+' ago')+')';
+  }
+  async function saveStreamStart(){
+    const at=startEpochFromInput();
+    if(at==null){ closeStreamStart(); return; }
+    await postClip('/api/stream-start',{at});
+    closeStreamStart();
+  }
+  async function clearStreamStart(){ await postClip('/api/stream-start',{clear:true}); closeStreamStart(); }
+  async function timeClip(){ if(!state.streamStartAt) return; await postClip('/api/clip',{}); }
+  async function deleteClipUI(id){ await postClip('/api/clip/'+encodeURIComponent(id)+'/delete',{}); }
+  async function clearClipsUI(){
+    if(!(state.clips||[]).length) return;
+    const ok=await uiConfirm({title:'Clear all clips?',body:'This deletes every clip in the list. The stream start time stays set.',confirmText:'Clear all',danger:true});
+    if(ok) await postClip('/api/clips/clear',{});
+  }
+  async function saveClipElapsed(id,val){
+    const start=state.streamStartAt; if(!start) return;
+    const ms=parseElapsed(val);
+    if(ms==null){ renderClips(true); return; } // invalid → revert to stored value
+    await postClip('/api/clip/'+encodeURIComponent(id),{at:start+ms});
+  }
+  // Manually set a clip's time. You type in your LOCAL time (matching the start
+  // entry); it's stored/shown in Eastern. Keeps the clip's original date, changing
+  // only the time of day.
+  async function saveClipClock(id,val){
+    const c=(state.clips||[]).find(x=>x.id===id); if(!c){ return; }
+    const parts=String(val).split(':').map(Number);
+    if(parts.length<2 || parts.some(n=>isNaN(n))){ renderClips(true); return; } // invalid → revert
+    const d=new Date(Number(c.at)); d.setHours(parts[0]||0, parts[1]||0, parts[2]||0, 0);
+    await postClip('/api/clip/'+encodeURIComponent(id),{at:d.getTime()});
+  }
+  async function saveClipNote(id,val){ await postClip('/api/clip/'+encodeURIComponent(id),{note:val}); }
+  function copyClips(){
+    const start=state.streamStartAt||null;
+    const clips=(state.clips||[]).slice().sort((a,b)=>(a.at||0)-(b.at||0));
+    const lines=clips.map((c,i)=>{
+      const el=start?fmtElapsedHMS(c.at-start):'—';
+      return (i+1)+'. '+el+'   '+fmtETclock(c.at)+' ET'+(c.note?'   — '+c.note:'');
+    });
+    const text=(start?('Stream start: '+fmtETclock(start)+' ET\n\n'):'')+(lines.join('\n')||'(no clips)');
+    const done=()=>{ const b=document.getElementById('clip-copy'); const t=b.textContent; b.textContent='✓ Copied'; setTimeout(()=>b.textContent=t,1300); };
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done)); }
+    else fallbackCopy(text,done);
+  }
+  function fallbackCopy(text,done){ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} ta.remove(); done&&done(); }
+
+  // Collapse state for the clip list (remembered on this device) so a long list
+  // doesn't push the queue down during a busy stream.
+  let clipsCollapsed=false;
+  try{ clipsCollapsed = localStorage.getItem('lts.clipsCollapsed')==='1'; }catch(e){}
+  function applyClipsCollapsed(){
+    const c=document.getElementById('clips-admin');
+    if(c) c.classList.toggle('collapsed', clipsCollapsed);
+  }
+  function toggleClips(){
+    clipsCollapsed=!clipsCollapsed;
+    try{ localStorage.setItem('lts.clipsCollapsed', clipsCollapsed?'1':'0'); }catch(e){}
+    applyClipsCollapsed();
+  }
+
+  function renderClips(force){
+    const start=state.streamStartAt||null;
+    const endAt=state.streamEndAt||null;
+    const live=!!(state.stats&&state.stats.live);
+    window.__streamStart=start;
+    window.__streamEndAt=endAt;
+    window.__live=live;
+    const clips=(state.clips||[]).slice().sort((a,b)=>(a.at||0)-(b.at||0));
+    applyClipsCollapsed();
+    const nEl=document.getElementById('clip-n');
+    if(nEl) nEl.textContent = clips.length ? ('('+clips.length+')') : '';
+    const lbl=document.getElementById('clip-startlbl');
+    if(lbl){
+      if(start){
+        // Live: ticks from start. Offline: frozen at the end time (total run).
+        const dur = live ? (Date.now()-start) : ((endAt||Date.now())-start);
+        const word = live ? 'running' : 'ran';
+        lbl.innerHTML='Start <b>'+esc(fmtETclock(start))+' ET</b> · '+word+' <span class="run" id="clip-run">'+esc(fmtElapsedHMS(dur))+'</span>';
+      }
+      else { lbl.textContent='Start time not set'; }
+    }
+    const take=document.getElementById('clip-take');
+    if(take){ take.disabled=!start; take.title=start?'Add a clip at the current time':'Set the stream start time first'; }
+    const list=document.getElementById('cliplist'); if(!list) return;
+    const sig=JSON.stringify([start, clips.map(c=>[c.id,c.at,c.note])]);
+    // Don't clobber a field the operator is editing; refresh once focus leaves.
+    if(!force && (list._sig===sig || list.contains(document.activeElement))) return;
+    list._sig=sig;
+    if(!clips.length){ list.innerHTML='<div class="clip-empty">No clips yet — hit ✂ Time Clip during the stream to mark a moment for the editor.</div>'; return; }
+    list.innerHTML=clips.map((c,i)=>{
+      const el=start?fmtElapsedHMS(c.at-start):'—';
+      return '<div class="cliprow">'
+        +'<span class="cidx">'+(i+1)+'</span>'
+        +'<input class="cclock" type="time" step="1" value="'+esc(clockHMS(c.at))+'" title="Clip time — type in your local time; edit to adjust" '
+          +'onchange="saveClipClock(\''+c.id+'\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" />'
+        +'<span class="cmt" title="Recorded time (Eastern)">'+esc(fmtETclock(c.at))+' ET</span>'
+        +'<input class="celapsed" value="'+esc(el)+'" '+(start?'':'disabled')+' title="Elapsed since stream start — edit to adjust (h:mm:ss)" '
+          +'onchange="saveClipElapsed(\''+c.id+'\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" />'
+        +'<input class="cnote" placeholder="note…" value="'+esc(c.note||'')+'" '
+          +'onchange="saveClipNote(\''+c.id+'\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" />'
+        +'<button class="cdel" title="Delete this clip" onclick="deleteClipUI(\''+c.id+'\')">🗑</button>'
+      +'</div>';
+    }).join('');
+  }
+
+  // ── Active-queue pagination (client-side; no reload — just this area swaps) ──
+  const QUEUE_PAGE_SIZES = [10, 25, 50, 100];
+  // How many orders show per page. Defaults to 25; the operator can change it via
+  // the dropdown and the choice is remembered on this device.
+  let QUEUE_PAGE_SIZE = 25;
+  try { const saved = parseInt(localStorage.getItem('lts-page-size'), 10); if(QUEUE_PAGE_SIZES.includes(saved)) QUEUE_PAGE_SIZE = saved; } catch(e){}
+  let queuePage = 1;
+  let _lastQueueFilter = null;
+  function queueGoPage(n){ queuePage = n; renderQueue(); }
+  function setQueuePageSize(n){
+    n = parseInt(n, 10);
+    if(!QUEUE_PAGE_SIZES.includes(n)) return;
+    QUEUE_PAGE_SIZE = n;
+    try { localStorage.setItem('lts-page-size', String(n)); } catch(e){}
+    queuePage = 1; // jump back to the first page so the view isn't stranded past the end
+    renderQueue();
+  }
+  // Reflect the saved/default page size in the dropdown on load.
+  try { const _psel = document.getElementById('page-size'); if(_psel) _psel.value = String(QUEUE_PAGE_SIZE); } catch(e){}
+  function renderQueuePager(total, pages, start, end){
+    const el = document.getElementById('queue-pager'); if(!el) return;
+    if(pages <= 1){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='flex';
+    el.innerHTML =
+      `<button ${queuePage<=1?'disabled':''} onclick="queueGoPage(${queuePage-1})">‹ Prev</button>`
+      + `<span class="qpinfo">Showing ${start+1}–${end} of ${total} &nbsp;·&nbsp; Page ${queuePage} of ${pages}</span>`
+      + `<button ${queuePage>=pages?'disabled':''} onclick="queueGoPage(${queuePage+1})">Next ›</button>`;
+  }
+  function renderQueue(){
+    const filter = (document.getElementById('search').value||'').toLowerCase().trim();
+    // For order-number search, compare on an alphanumeric-only form so a partial
+    // like the last 6 digits matches regardless of a leading "#" or spaces.
+    const fAlnum = filter.replace(/[^a-z0-9]/g,'');
+    const matchOrderNo = (e) => fAlnum && (e.orderIds||[]).some(id =>
+      String(id).toLowerCase().replace(/[^a-z0-9]/g,'').includes(fAlnum));
+    // Detect buyers who share an identical display name with ANOTHER buyer in
+    // the queue (different people, same TikTok name). Count over the WHOLE queue
+    // so a search filter never hides a duplicate. (#4)
+    // Flag a name as duplicate only when DIFFERENT buyers share it (distinct buyer
+    // ids). With auto-combine off, one buyer legitimately has several slots, so
+    // counting by name alone would wrongly flag those repeats — keying off buyer
+    // ids means only genuinely different people sharing a name get flagged.
+    const nameIds = {};
+    for(const e of (state.queue||[])){ const n=(e.buyer||'').toLowerCase(); (nameIds[n]=nameIds[n]||new Set()).add(e.buyerId); }
+    const list = (state.queue||[]).filter(e=>!filter || e.buyer.toLowerCase().includes(filter) || matchOrderNo(e));
+    for(const e of list){
+      e._dupName = (nameIds[(e.buyer||'').toLowerCase()] ? nameIds[(e.buyer||'').toLowerCase()].size : 0) > 1;
+      e._idTag = e._dupName ? String(e.buyerId||'').slice(-4) : '';
+    }
+    const qEl = document.getElementById('queue');
+    if(!list.length){
+      if(!qEl.querySelector('.empty')) qEl.innerHTML = '<div class="empty">Queue is empty — waiting on orders.</div>';
+      slotNodes.forEach(n=>n.remove()); slotNodes.clear();
+      renderQueuePager(0, 1, 0, 0);
+      return;
+    }
+    const emptyEl = qEl.querySelector('.empty'); if(emptyEl) emptyEl.remove();
+    // Reset to page 1 whenever the search filter changes.
+    if(filter !== _lastQueueFilter){ queuePage = 1; _lastQueueFilter = filter; }
+    // Paginate: only the current page's slots are rendered; the rest are removed
+    // by the cleanup pass below, so the queue area "turns the page" in place.
+    const total = list.length;
+    const pages = Math.max(1, Math.ceil(total / QUEUE_PAGE_SIZE));
+    if(queuePage > pages) queuePage = pages;
+    if(queuePage < 1) queuePage = 1;
+    const start = (queuePage - 1) * QUEUE_PAGE_SIZE;
+    const end = Math.min(start + QUEUE_PAGE_SIZE, total);
+    const pageList = list.slice(start, end);
+    renderQueuePager(total, pages, start, end);
+    const seen = new Set();
+    pageList.forEach((e, idx) => {
+      seen.add(e.key);
+      let node = slotNodes.get(e.key);
+      const sig = slotSig(e);
+      if(!node){
+        node = document.createElement('div');
+        node.className = 'slot new'+(e.isPriority?' priority':'')+(e.bumped?' bumped':'')+((e.reorderedAtTop&&e.position===1)?' reorder':'')+(e.cancelRequested?' cancelreq':(e.onHold?' onhold':''));
+        node.innerHTML = slotInner(e);
+        node._sig = sig;
+        slotNodes.set(e.key, node);
+        setTimeout(()=>node.classList.remove('new'), 260);
+      } else if(node._sig !== sig){
+        // update only the changed row's contents in place
+        node.className = 'slot'+(e.isPriority?' priority':'')+(e.bumped?' bumped':'')+((e.reorderedAtTop&&e.position===1)?' reorder':'')+(e.cancelRequested?' cancelreq':(e.onHold?' onhold':''));
+        node.innerHTML = slotInner(e);
+        node._sig = sig;
+      }
+      // preserve the user's expand/collapse choice across live updates
+      node.classList.toggle('expanded', expandedKeys.has(e.key));
+      // move into position ONLY if it's not already there (no needless re-attach)
+      if(qEl.children[idx] !== node) qEl.insertBefore(node, qEl.children[idx] || null);
+    });
+    for(const [key,node] of slotNodes){ if(!seen.has(key)){ node.remove(); slotNodes.delete(key); expandedKeys.delete(key); } }
+  }
+
+  // Per-variant counter card. Rebuild the structure only when the variant
+  // DEFINITIONS change; otherwise update counts in place and never overwrite a
+  // field the operator is currently editing.
+  function renderVariantsAdmin(){
+    const box = document.getElementById('variants-admin');
+    const vs = state.variants || [];
+    if(!vs.length){ box.innerHTML=''; box._sig=''; return; }
+    const sig = vs.map(v=>v.id+':'+v.label).join('|');
+    if(box._sig !== sig){
+      box._sig = sig;
+      box.innerHTML = `<div class="vcard"><h3>LTs Box Counter</h3>
+        <p class="vsub">Adds +1 per unit when an order reaches the top of the queue. Shown on the public page. Counts are cumulative and persist across streams — they only change from a sale, a Save, or a Reset.</p>
+        ${vs.map(v=>`<div class="vrow" data-id="${esc(v.id)}">
+          <div class="vlab">${esc(v.label)}</div>
+          <div class="vctl">
+            <input type="number" min="0" class="vin" value="${Number(v.count)||0}" />
+            <button class="vsave" onclick="saveVariant('${esc(v.id)}', this)">Save</button>
+            <button class="vreset" onclick="resetVariant('${esc(v.id)}')">Reset</button>
+          </div>
+        </div>`).join('')}
+        <details class="vlogwrap"><summary>▾ Reset / edit log</summary><div class="vlog" id="vlog-list"></div></details>
+      </div>`;
+    } else {
+      vs.forEach(v=>{
+        const row = box.querySelector('.vrow[data-id="'+String(v.id).replace(/"/g,'\\"')+'"]');
+        if(!row) return;
+        const input = row.querySelector('.vin');
+        if(input && document.activeElement !== input) input.value = Number(v.count)||0;
+      });
+    }
+    renderVariantLog();
+  }
+  function fmtLogTime(ts){
+    try{ return new Date(ts).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+    catch{ return ''; }
+  }
+  function renderVariantLog(){
+    const el = document.getElementById('vlog-list'); if(!el) return;
+    const log = state.variantLog || [];
+    if(!log.length){ el.innerHTML = '<div class="lr">No manual changes yet.</div>'; return; }
+    el.innerHTML = log.map(e=>{
+      const isReset = e.action === 'reset';
+      return `<div class="lr">${fmtLogTime(e.ts)} · <b>${esc(e.label||e.id)}</b> ${Number(e.from)||0}→${Number(e.to)||0}${isReset?' <span class="rst">(reset)</span>':''}</div>`;
+    }).join('');
+  }
+  async function saveVariant(id, btn){
+    const row = btn.closest('.vrow');
+    const val = Math.max(0, Math.floor(Number(row.querySelector('.vin').value)||0));
+    try{
+      await fetch('/api/variant-count/'+encodeURIComponent(id), {
+        method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({count:val})
+      });
+      btn.classList.add('saved'); btn.textContent='Saved ✓';
+      setTimeout(()=>{ btn.classList.remove('saved'); btn.textContent='Save'; }, 1200);
+    }catch{ alert("Couldn't save that count — check your connection and try again."); }
+  }
+  // Reset a single variant to 0 — requires a confirmation click first. The prior
+  // value is written to the audit log by the server so it's always recoverable.
+  async function resetVariant(id){
+    const cur = (state.variants||[]).find(v=>v.id===id);
+    const label = cur ? cur.label : id;
+    const before = cur ? (Number(cur.count)||0) : 0;
+    const ok = await uiConfirm({
+      title: 'Reset "'+label+'" to 0?',
+      body: 'This sets the '+label+' counter (currently '+before+') back to 0. The current value is saved to the reset/edit log so it can be checked later. This cannot be undone from here.',
+      confirmText: 'Reset to 0', danger:true
+    });
+    if(!ok) return;
+    try{
+      await fetch('/api/variant-count/'+encodeURIComponent(id), {
+        method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({count:0})
+      });
+    }catch{ alert("Couldn't reset that counter — check your connection and try again."); }
+  }
+
+  function render(){
+    const st = state.stats||{};
+    const live = !!st.live;
+    // Track when the CURRENT #1 slot took the top spot. Resets whenever the top
+    // slot changes (a bump/priority displaces it, or it's fulfilled), so the
+    // per-slot "at top" timer only runs for whoever is at #1 right now.
+    const curTopKey = (state.queue && state.queue[0]) ? state.queue[0].key : null;
+    if(curTopKey !== window.__topKey){ window.__topKey = curTopKey; window.__topSince = curTopKey ? Date.now() : 0; }
+    document.getElementById('dot').classList.toggle('live', live); // green = live, red = offline
+    const badge = document.getElementById('liveBadge');
+    badge.textContent = live ? 'LIVE' : 'OFFLINE';
+    badge.classList.toggle('on', live);
+    const lb = document.getElementById('liveBtn');
+    lb.textContent = live ? '■ End Live' : '● Go Live';
+    lb.classList.toggle('off', !live);
+    document.getElementById('offline-banner').style.display = live ? 'none' : 'block';
+
+    document.getElementById('s-active').textContent = st.activeCount||0;
+    document.getElementById('s-pri').textContent = st.priorityCount||0;
+    document.getElementById('s-val').textContent = money(st.activeValue);
+    document.getElementById('s-done').textContent = st.fulfilledCount||0;
+    document.getElementById('s-avgq').textContent = fmtDur(st.avgTimeInQueueMs);
+    document.getElementById('s-avgt').textContent = fmtDur(st.avgFulfillmentMs);
+
+    const chips = document.getElementById('pri-chips');
+    const chipSig = (state.config.priorityItems||[]).join('|');
+    if(chips._sig !== chipSig){
+      chips._sig = chipSig;
+      chips.innerHTML = (state.config.priorityItems||[]).map(p=>`<span class="chip">⭐ ${esc(p)}</span>`).join('');
+      applyPriChipsPref();
+    }
+
+    renderQueue();
+    tickTimers();
+    renderVariantsAdmin();
+    renderClips();
+
+    const fEl = document.getElementById('fulfilled');
+    const f = state.fulfilled||[];
+    document.getElementById('f-count').textContent = f.length ? '('+f.length+')' : '';
+    const fSig = JSON.stringify(f.map(s=>[s.key,s.buyer,s.itemCount,s.total,(s.orderIds||[]).join(',')]));
+    if(fSig !== fulfilledSig){
+      fulfilledSig = fSig;
+      fEl.innerHTML = f.length ? f.map(s=>`<div class="done-row">
+          <span class="ordno">${(s.orderIds||[]).map(id=>'#'+esc(id)).join(' ')}</span>
+          <span class="name">${esc(s.buyer)}</span>
+          <span>${s.itemCount} item${s.itemCount===1?'':'s'}</span>
+          <span style="margin-left:auto">${money(s.total)}</span>
+          <button class="undob" title="Move this order back into the queue" onclick="reopenOrder('${s.key}')">↩ Undo</button>
+        </div>`).join('') : '<div class="empty">Nothing fulfilled yet this stream.</div>';
+    }
+
+    const cEl = document.getElementById('cancelled');
+    const c = state.cancelled||[];
+    document.getElementById('c-count').textContent = c.length ? '('+c.length+')' : '';
+    const cSig = JSON.stringify(c.map(s=>[s.key,s.buyer,s.itemCount,s.total,(s.orderIds||[]).join(',')]));
+    if(cSig !== cancelledSig){
+      cancelledSig = cSig;
+      cEl.innerHTML = c.length ? c.map(s=>`<div class="done-row cancel-row">
+          <span class="ordno">${(s.orderIds||[]).map(id=>'#'+esc(id)).join(' ')}</span>
+          <span class="name">${esc(s.buyer)}</span>
+          <span>${s.itemCount} item${s.itemCount===1?'':'s'}</span>
+          <span style="margin-left:auto">${money(s.total)}</span>
+          <button class="undob" title="Put this order back into the queue" onclick="reopenOrder('${s.key}')">↩ Restore</button>
+        </div>`).join('') : '<div class="empty">No cancelled orders this stream.</div>';
+    }
+
+    applyCollapse();
+  }
+
+  render();
+
+  // --- TikTok connection status ---
+  async function refreshTikTok(){
+    let s; try { s = await (await fetch('/api/tiktok-status')).json(); } catch { return; }
+    const badge = document.getElementById('ttStatus');
+    const banner = document.getElementById('tt-banner');
+    if(!s.enabled){ badge.style.display='none'; banner.style.display='none'; return; }
+    badge.style.display='';
+    if(s.connected){
+      badge.className='ttbadge ok';
+      badge.textContent = 'TikTok ✓' + (s.shop ? ' '+s.shop : '');
+      banner.style.display='none';
+    } else {
+      badge.className='ttbadge bad';
+      badge.textContent = 'TikTok ⚠ not connected';
+      banner.className='offline-banner tt-banner';
+      banner.style.display='block';
+      banner.innerHTML = '⚠ <b>TikTok isn\'t connected right now</b>, so live orders won\'t come in.'
+        + (s.authUrl ? ' <a href="'+s.authUrl+'" target="_blank">Reconnect your shop →</a>' : ' Reconnect it from the authorization link.')
+        + (s.lastError ? '<br><span style="opacity:.7;font-size:12px">('+esc(s.lastError)+')</span>' : '');
+    }
+  }
+  if(new URLSearchParams(location.search).get('tiktok')==='connected'){
+    history.replaceState({}, '', location.pathname);
+  }
+  refreshTikTok();
+  setInterval(refreshTikTok, 30000);
+</script>
+</body>
+</html>
