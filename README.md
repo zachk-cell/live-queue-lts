@@ -10,7 +10,7 @@
 > | **Timezone** | Eastern (EST/EDT, `America/New_York`) |
 > | **Public page** | https://live-queue-lts.onrender.com/ |
 > | **GitHub repo** | `zachk-cell/live-queue-lts` |
-> | **Render service** | _(set after the Render service is created)_ |
+> | **Render service** | `srv-dbj05r6c6qcc73b43hf0` |
 > | **Live model** | Session-based — ingest runs only while you're **Live** |
 > | **Queue-specific** | Stream Clips (Eastern-time labels), post-queue cancellation handling |
 >
