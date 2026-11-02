@@ -60,6 +60,7 @@
           </div>
           <div class="spacer"></div>
           <a href="/api/export/${encodeURIComponent(s.id)}" style="text-decoration:none"><button class="dl">⬇ Export CSV</button></a>
+          <a href="/api/export-skus/${encodeURIComponent(s.id)}" style="text-decoration:none"><button class="dl">⬇ Export SKUs</button></a>
         </div>`;
       }).join('');
     } catch(e){

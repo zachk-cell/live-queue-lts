@@ -223,6 +223,14 @@ function maskedBuyerLabel(o) {
   return last4 ? `Buyer ${last4}` : 'Buyer';
 }
 
+// Coerce a TikTok money field to a number. It may be a plain string ("25.00"),
+// a number, or an object like { amount: "25.00", currency: "USD" }.
+function _amount(v) {
+  if (v == null) return 0;
+  if (typeof v === 'object') return Number(v.amount ?? v.value ?? 0) || 0;
+  return Number(v) || 0;
+}
+
 export function normalizeOrder(o) {
   const lineItems = o.line_items || o.item_list || [];
   const items = lineItems.map((li) => {
@@ -246,11 +254,20 @@ export function normalizeOrder(o) {
     // others.
     const dstat = String(li.display_status || li.package_status || '').toUpperCase();
     const itemCancelled = /CANCEL/.test(dstat) || !!(li.cancel_reason && String(li.cancel_reason).trim());
+    // Per-item sale price, for the SKU dollar-volume export. In the Order API
+    // (v202309) each line_items entry is ONE unit, and sale_price is the amount
+    // the buyer actually paid for it (after discounts, before shipping/tax). Some
+    // shapes nest the amount as {amount,currency}; read either. Multiplying by qty
+    // is a no-op for 202309 (qty=1 per line) but keeps a legacy item_list with a
+    // real quantity correct.
+    const price = _amount(li.sale_price ?? li.sku_sale_price ?? li.sale_price_amount
+      ?? (li.payment && li.payment.sale_price) ?? li.original_price);
     return {
       name,
       sku: li.seller_sku || li.sku_id || '',
       variant: variant || '',
       qty: li.quantity || 1,
+      price,
       cancelled: itemCancelled,
       displayStatus: dstat || '',
     };

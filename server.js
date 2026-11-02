@@ -442,6 +442,86 @@ function sendCsv(res, filename, records, cancelled = [], unfulfilled = []) {
   // UTF-8 instead of mangling them into mojibake (PokÃ©mon, â€").
   res.send('﻿' + toCsv(records, cancelled, unfulfilled));
 }
+
+// ---- SKU sales breakdown: every item sold, qty, and dollar volume per SKU ----
+// "Sold" = fulfilled + still-queued (paid) orders, with cancelled line items
+// excluded. Dollar volume uses the per-item sale price when it was captured;
+// for streams archived before that (no per-item price), it falls back to
+// allocating each order's total across its line items by quantity, flagged in a
+// "Basis" column so the number is never silently misleading.
+function toSkuCsv(records) {
+  const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const escText = (v) => {
+    const cell = '="' + String(v == null ? '' : v) + '"';
+    return '"' + cell.replace(/"/g, '""') + '"';
+  };
+  const bySku = new Map(); // key -> { sku, name, qty, dollars, allocated }
+  let anyAllocated = false;
+  for (const r of records) {
+    const items = (r.items || []).filter((i) => !i.cancelled);
+    if (!items.length) continue;
+    // Real per-item prices when the order has them; otherwise allocate the order
+    // total across its line items by quantity.
+    const priced = items.some((i) => Number(i.price || 0) > 0);
+    const totalQty = items.reduce((n, i) => n + (i.qty || 1), 0);
+    const orderTotal = Number(r.total || 0);
+    if (!priced && orderTotal > 0) anyAllocated = true;
+    for (const i of items) {
+      const sku = String(i.sku || '').trim();
+      const name = i.name || 'Item';
+      const key = sku ? ('sku:' + sku) : ('name:' + name.toLowerCase());
+      if (!bySku.has(key)) bySku.set(key, { sku, name, qty: 0, dollars: 0, allocated: false });
+      const g = bySku.get(key);
+      const q = i.qty || 1;
+      g.qty += q;
+      if (priced) {
+        g.dollars += Number(i.price || 0) * q;
+      } else if (orderTotal > 0 && totalQty > 0) {
+        g.dollars += orderTotal * (q / totalQty);
+        g.allocated = true;
+      }
+      if (sku && !g.sku) g.sku = sku;
+    }
+  }
+  const rows = [...bySku.values()].sort((a, b) =>
+    b.dollars - a.dollars || b.qty - a.qty ||
+    String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()));
+  const totalQty = rows.reduce((n, g) => n + g.qty, 0);
+  const totalDollars = rows.reduce((s, g) => s + g.dollars, 0);
+
+  const lines = [];
+  lines.push(esc('SKU SALES — items sold this stream (cancelled items excluded)'));
+  if (anyAllocated) {
+    lines.push(esc('Note: rows marked "allocated" had no per-item price recorded; their dollar volume is split from the order total by quantity.'));
+  }
+  lines.push(['SKU', 'Item', 'Qty sold', 'Dollar volume', 'Basis'].map(esc).join(','));
+  if (!rows.length) {
+    lines.push(esc('(nothing sold this stream)'));
+  } else {
+    for (const g of rows) {
+      lines.push([
+        escText(g.sku || '(no SKU)'),            // text so numeric SKUs survive
+        esc(g.name),
+        esc(g.qty),
+        esc(g.dollars.toFixed(2)),
+        esc(g.allocated ? 'allocated' : 'price'),
+      ].join(','));
+    }
+    lines.push([
+      esc(`TOTAL — ${rows.length} SKU${rows.length === 1 ? '' : 's'}`),
+      esc(''),
+      esc(totalQty),
+      esc(totalDollars.toFixed(2)),
+      esc(''),
+    ].join(','));
+  }
+  return lines.join('\r\n');
+}
+function sendSkuCsv(res, filename, records) {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('﻿' + toSkuCsv(records));
+}
 // Past-stream summaries for the history page.
 app.get('/api/history', requireAuth, (_req, res) => res.json({ history: queue.snapshot().history }));
 // Current stream's orders (fulfilled + cancelled).
@@ -452,6 +532,15 @@ app.get('/api/export/:id', requireAuth, (req, res) => {
   const s = queue.history.find((h) => String(h.id) === req.params.id);
   if (!s) return res.status(404).send('stream not found');
   sendCsv(res, `orders-${req.params.id}.csv`, s.fulfilled || [], s.cancelled || [], s.unfulfilled || []);
+});
+// Current stream's SKU sales breakdown (fulfilled + still-queued; cancelled excluded).
+app.get('/api/export-skus', requireAuth, (_req, res) =>
+  sendSkuCsv(res, 'sku-sales-current.csv', [...queue.fulfilledRecords(), ...queue.queuedRecords()]));
+// A past stream's SKU sales breakdown by id.
+app.get('/api/export-skus/:id', requireAuth, (req, res) => {
+  const s = queue.history.find((h) => String(h.id) === req.params.id);
+  if (!s) return res.status(404).send('stream not found');
+  sendSkuCsv(res, `sku-sales-${req.params.id}.csv`, [...(s.fulfilled || []), ...(s.unfulfilled || [])]);
 });
 
 // ---------- TikTok Shop ingest ----------
