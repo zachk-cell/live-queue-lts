@@ -501,7 +501,7 @@
     if(!e) return;
     const uname = e.buyer || 'Buyer';
     const ords = (e.orderIds||[]);
-    const ordLine = ords.map(id=>'#'+id).join('   ');
+    const ordLine = ords.map(id=>'#'+String(id).slice(-5)).join('   ');
     const countLine = (e.orderCount>1) ? (e.orderCount+' orders in this batch') : '';
     // Thermal printers only lay down BLACK, and browsers skip background fills
     // unless "Background graphics" is on — so flags are black text in a black
@@ -512,18 +512,12 @@
     // display name, print a last-4 id tag so the right bag goes to the right person.
     const dupe = (state.queue||[]).some(x=>(x.buyer||'').toLowerCase()===uname.toLowerCase() && x.buyerId!==e.buyerId);
     const idTag = dupe ? ('id …'+String(e.buyerId||'').slice(-4)) : '';
-    // Top-left @username (the buyer's unique @handle), shown only when TikTok
-    // provides one distinct from the centered display name.
-    const handleRaw = String(e.buyerHandle||'').replace(/^@+/,'');
-    const handleStr = handleRaw ? ('@'+handleRaw) : '';
     const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       @page{size:2.25in 1.25in;margin:0}
       html,body{margin:0;padding:0;width:2.25in;height:1.25in}
       body{display:flex;flex-direction:column;justify-content:center;align-items:center;
         box-sizing:border-box;padding:0.05in 0.08in;font-family:Arial,Helvetica,sans-serif;
-        text-align:center;color:#000;background:#fff;overflow:hidden;position:relative}
-      .handle{position:absolute;top:0.035in;left:0.06in;font-size:8px;font-weight:700;color:#000;
-        max-width:1.5in;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+        text-align:center;color:#000;background:#fff;overflow:hidden}
       .flag{border:1.5px solid #000;color:#000;background:#fff;font-weight:800;font-size:8.5px;
         padding:1px 6px;border-radius:3px;letter-spacing:.4px;margin-bottom:3px;white-space:nowrap}
       .uname{font-weight:800;line-height:1.03;word-break:break-word;max-width:100%}
@@ -532,7 +526,6 @@
       .ord{margin-top:5px;font-family:'Courier New',monospace;font-weight:700;line-height:1.15;
         word-break:break-all;max-width:100%}
     </style></head><body>
-      ${handleStr?`<div class="handle">${esc(handleStr)}</div>`:''}
       ${flags.map(f=>`<div class="flag">${esc(f)}</div>`).join('')}
       <div class="uname" id="u">${esc(uname)}</div>
       ${idTag?`<div class="idtag">${esc(idTag)}</div>`:''}
