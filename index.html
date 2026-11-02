@@ -47,6 +47,18 @@
   .slot.priority{border-color:var(--pri);background:linear-gradient(90deg,var(--pri-bg),var(--panel))}
   .slot.bumped{outline:2px solid var(--accent)}
   .slot.reorder{border-color:var(--done);box-shadow:0 0 0 1px var(--done) inset}
+  /* Batch-select checkbox + highlight for selected rows */
+  .selchk{width:17px;height:17px;flex:none;cursor:pointer;accent-color:var(--pri,#ffb020)}
+  .slot.selected{outline:2px solid var(--pri,#ffb020)}
+  .selallb{font-size:12.5px;padding:6px 10px}
+  /* Floating selection bar (batch label printing) */
+  .sel-bar{position:fixed;left:50%;bottom:18px;transform:translate(-50%,160%);z-index:60;
+    display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:12px;
+    background:var(--panel2,#171a21);border:1px solid var(--line);
+    box-shadow:0 10px 30px rgba(0,0,0,.45);transition:transform .18s ease;max-width:calc(100vw - 24px)}
+  .sel-bar.show{transform:translate(-50%,0)}
+  .sel-bar .sel-msg{font-size:13.5px;color:var(--text);white-space:nowrap}
+  .sel-bar .sel-msg b{color:var(--pri,#ffb020)}
   @keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   /* Inline expand: full item list revealed under the row */
   .caret{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;
@@ -314,8 +326,9 @@
 
   <div id="tt-banner" class="offline-banner" style="display:none"></div>
 
-  <div class="sectitle" style="display:flex;align-items:center;gap:10px">
+  <div class="sectitle" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span>Active queue — top is next</span>
+    <button class="ghost selallb" id="qSelAll" onclick="selectAllQueue()" title="Select every order shown (respects the search filter), then print all their labels at once from the bar at the bottom">☑ Select all</button>
     <label class="pagesize">Show
       <select id="page-size" onchange="setQueuePageSize(this.value)">
         <option value="10">10</option>
@@ -328,6 +341,13 @@
   </div>
   <div id="queue"></div>
   <div id="queue-pager" class="qpager" style="display:none"></div>
+
+  <!-- Floating bar: appears when one or more orders are selected. -->
+  <div id="sel-bar" class="sel-bar">
+    <span class="sel-msg"><b id="sel-count">0</b> selected</span>
+    <button class="primary" onclick="printLabelsBatch()">🏷 Print selected labels</button>
+    <button class="ghost" onclick="clearSelection()">Clear</button>
+  </div>
 
   <div class="sectitle collapser" id="fhead" onclick="toggleSection('fulfilled')" style="display:flex;align-items:center;gap:8px">
     <span class="cav">▾</span><span>Fulfilled this stream</span><span class="secount" id="f-count"></span>
@@ -493,12 +513,11 @@
   }
 
   // --- Thermal bag label (2.25" x 1.25") ---
-  // Renders username + order number(s) into an off-screen iframe whose page size
-  // is locked to the label, auto-shrinks the text to fit, and opens the print
-  // dialog. Pick your thermal printer there (set it as default to make it 1 click).
-  function printLabel(key){
-    const e = (state.queue||[]).find(x=>x.key===key);
-    if(!e) return;
+  // Builds the inner markup for ONE label: flags, name, optional id tag, order
+  // count, and the order number(s) (last 5 digits each). Shared by the single
+  // "Label" button and the batch "Print selected" action so every label comes
+  // out identical no matter how it was triggered.
+  function _labelCard(e){
     const uname = e.buyer || 'Buyer';
     const ords = (e.orderIds||[]);
     const ordLine = ords.map(id=>'#'+String(id).slice(-5)).join('   ');
@@ -512,12 +531,29 @@
     // display name, print a last-4 id tag so the right bag goes to the right person.
     const dupe = (state.queue||[]).some(x=>(x.buyer||'').toLowerCase()===uname.toLowerCase() && x.buyerId!==e.buyerId);
     const idTag = dupe ? ('id …'+String(e.buyerId||'').slice(-4)) : '';
+    return `<div class="label">`
+      + flags.map(f=>`<div class="flag">${esc(f)}</div>`).join('')
+      + `<div class="uname">${esc(uname)}</div>`
+      + (idTag?`<div class="idtag">${esc(idTag)}</div>`:'')
+      + (countLine?`<div class="count">${esc(countLine)}</div>`:'')
+      + (ordLine?`<div class="ord">${esc(ordLine)}</div>`:'')
+      + `</div>`;
+  }
+  // Render one OR MORE labels into an off-screen iframe whose page size is locked
+  // to the thermal label, auto-shrink each label's text to fit on its own, and
+  // open the print dialog — the browser prints every label in sequence. Pick your
+  // thermal printer there (set it as default to make it 1 click).
+  function _printLabels(entries){
+    if(!entries || !entries.length) return;
+    const cards = entries.map(_labelCard).join('');
     const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       @page{size:2.25in 1.25in;margin:0}
-      html,body{margin:0;padding:0;width:2.25in;height:1.25in}
-      body{display:flex;flex-direction:column;justify-content:center;align-items:center;
-        box-sizing:border-box;padding:0.05in 0.08in;font-family:Arial,Helvetica,sans-serif;
-        text-align:center;color:#000;background:#fff;overflow:hidden}
+      html,body{margin:0;padding:0}
+      .label{width:2.25in;height:1.25in;box-sizing:border-box;padding:0.05in 0.08in;
+        display:flex;flex-direction:column;justify-content:center;align-items:center;
+        font-family:Arial,Helvetica,sans-serif;text-align:center;color:#000;background:#fff;
+        overflow:hidden;page-break-after:always;break-after:page}
+      .label:last-child{page-break-after:auto;break-after:auto}
       .flag{border:1.5px solid #000;color:#000;background:#fff;font-weight:800;font-size:8.5px;
         padding:1px 6px;border-radius:3px;letter-spacing:.4px;margin-bottom:3px;white-space:nowrap}
       .uname{font-weight:800;line-height:1.03;word-break:break-word;max-width:100%}
@@ -525,36 +561,34 @@
       .count{font-size:10px;font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
       .ord{margin-top:5px;font-family:'Courier New',monospace;font-weight:700;line-height:1.15;
         word-break:break-all;max-width:100%}
-    </style></head><body>
-      ${flags.map(f=>`<div class="flag">${esc(f)}</div>`).join('')}
-      <div class="uname" id="u">${esc(uname)}</div>
-      ${idTag?`<div class="idtag">${esc(idTag)}</div>`:''}
-      ${countLine?`<div class="count">${esc(countLine)}</div>`:''}
-      ${ordLine?`<div class="ord" id="o">${esc(ordLine)}</div>`:''}
+    </style></head><body>${cards}
       <script>(function(){
         function shrinkWidth(el,start,min){var s=start;el.style.fontSize=s+'px';
           while(s>min && el.scrollWidth>el.clientWidth){s--;el.style.fontSize=s+'px';}return s;}
-        var b=document.body;
-        var u=document.getElementById('u');var o=document.getElementById('o');
-        // Username: prefer it on ONE line — force no-wrap and shrink to fit the
-        // width. Only if it's still too wide at the floor do we allow a wrap,
-        // so normal names never break mid-word (e.g. "test_collector").
-        u.style.whiteSpace='nowrap';
-        var us=shrinkWidth(u,30,13);
-        if(u.scrollWidth>u.clientWidth){ u.style.whiteSpace='normal'; } // very long name -> wrap at floor
-        var os=o?shrinkWidth(o,13,7):0;
-        // Overall height fit (rare, e.g. many order numbers): shrink the order
-        // line first, then the name. overflow:hidden clips anything left over so
-        // a label never bleeds past its 2.25x1.25 area.
-        var guard=0;
-        while(b.scrollHeight>b.clientHeight && guard<120){
-          if(o && os>7){ os--; o.style.fontSize=os+'px'; }
-          else if(us>9){ us--; u.style.fontSize=us+'px'; }
-          else break;
-          guard++;
-        }
+        // Fit EACH label independently to its own 2.25x1.25 area.
+        document.querySelectorAll('.label').forEach(function(lbl){
+          var u=lbl.querySelector('.uname');var o=lbl.querySelector('.ord');
+          // Username: prefer it on ONE line — force no-wrap and shrink to fit the
+          // width. Only if it's still too wide at the floor do we allow a wrap,
+          // so normal names never break mid-word (e.g. "test_collector").
+          var us=13;
+          if(u){ u.style.whiteSpace='nowrap';
+            us=shrinkWidth(u,30,13);
+            if(u.scrollWidth>u.clientWidth){ u.style.whiteSpace='normal'; } }
+          var os=o?shrinkWidth(o,13,7):0;
+          // Overall height fit (rare, e.g. many order numbers): shrink the order
+          // line first, then the name. overflow:hidden clips anything left over so
+          // a label never bleeds past its 2.25x1.25 area.
+          var guard=0;
+          while(lbl.scrollHeight>lbl.clientHeight && guard<120){
+            if(o && os>7){ os--; o.style.fontSize=os+'px'; }
+            else if(u && us>9){ us--; u.style.fontSize=us+'px'; }
+            else break;
+            guard++;
+          }
+        });
         window.focus();
-        setTimeout(function(){window.print();},60);
+        setTimeout(function(){window.print();},80);
       })();<\/script>
     </body></html>`;
     let f = document.getElementById('labelFrame');
@@ -565,6 +599,49 @@
       document.body.appendChild(f);
     }
     f.srcdoc = doc;
+  }
+  function printLabel(key){
+    const e = (state.queue||[]).find(x=>x.key===key);
+    if(e) _printLabels([e]);
+  }
+  // Batch: print a label for every selected order, in queue order.
+  function printLabelsBatch(){
+    const entries = (state.queue||[]).filter(e=>selectedKeys.has(e.key));
+    _printLabels(entries);
+  }
+  // --- Order selection (for batch label printing) ---
+  function _visibleKeys(){
+    const filter = (document.getElementById('search').value||'').toLowerCase().trim();
+    const fAlnum = filter.replace(/[^a-z0-9]/g,'');
+    const matchOrderNo = (e) => fAlnum && (e.orderIds||[]).some(id =>
+      String(id).toLowerCase().replace(/[^a-z0-9]/g,'').includes(fAlnum));
+    return (state.queue||[]).filter(e=>!filter || (e.buyer||'').toLowerCase().includes(filter) || matchOrderNo(e)).map(e=>e.key);
+  }
+  function toggleSelect(key){
+    if(selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key);
+    renderQueue();
+  }
+  // Select-all works on the CURRENTLY VISIBLE (post-search) queue, so you can
+  // filter, grab all matches, then print just those. A second click clears them.
+  function selectAllQueue(){
+    const keys = _visibleKeys();
+    const allSelected = keys.length>0 && keys.every(k=>selectedKeys.has(k));
+    if(allSelected){ keys.forEach(k=>selectedKeys.delete(k)); } else { keys.forEach(k=>selectedKeys.add(k)); }
+    renderQueue();
+  }
+  function clearSelection(){ selectedKeys.clear(); renderQueue(); }
+  // Show/update the floating selection bar + the Select-all button label.
+  function updateSelBar(){
+    const bar = document.getElementById('sel-bar');
+    const n = selectedKeys.size;
+    const cnt = document.getElementById('sel-count'); if(cnt) cnt.textContent = n;
+    if(bar) bar.classList.toggle('show', n>=1);
+    const sa = document.getElementById('qSelAll');
+    if(sa){
+      const keys = _visibleKeys();
+      const all = keys.length>0 && keys.every(k=>selectedKeys.has(k));
+      sa.textContent = all ? '☒ Deselect all' : '☑ Select all';
+    }
   }
   async function toggleLive(){
     const live = (state.stats||{}).live;
@@ -619,6 +696,7 @@
   // --- In-place list rendering so updates don't flash ---
   const slotNodes = new Map(); // key -> element (reused across updates)
   const expandedKeys = new Set(); // slots the user has expanded to see all items
+  const selectedKeys = new Set(); // slots ticked for batch label printing
   let fulfilledSig = '';
   let cancelledSig = '';
 
@@ -684,6 +762,7 @@
     }
     const detailOrds = `<div class="dord">Full order number${e.orderIds.length>1?'s':''}: ${e.orderIds.map(id=>'#'+esc(id)).join('  ')}</div>`;
     return `<div class="slotmain">`
+      + `<input type="checkbox" class="selchk" ${selectedKeys.has(e.key)?'checked':''} title="Select this order — tick several, then use the bar at the bottom to print all their labels at once" onclick="event.stopPropagation()" onchange="toggleSelect('${e.key}')">`
       + `<button class="removeb" title="Remove from queue (e.g. buyer cancelled)" onclick="removeOrder('${e.key}')">✕</button>`
       + `<div class="pos">${e.position}</div>`
       + `<div class="who"><div class="name">${esc(e.buyer)} ${idTag} ${priBadge} ${countBadge} ${cancelBadge} ${holdBadge} ${reorderBadge} ${dupBadge} ${backBadge} ${ordNos}</div>`
@@ -700,7 +779,7 @@
   function slotSig(e){
     return [e.position,e.buyer,e.buyerHandle||'',e.isPriority,e.bumped,e.orderCount,e.total,e.priorFulfilled||0,
       e.reorderedAtTop?1:0,e.reorderedAtTopCount||0,e.onHold?1:0,e.cancelRequested?1:0,e._dupName?1:0,e._idTag||'',
-      e.firstOrderAt||'',e.reachedTopAt||'',
+      e.firstOrderAt||'',e.reachedTopAt||'',selectedKeys.has(e.key)?1:0,
       e.orderIds.join(','),e.items.map(i=>i.qty+'x'+i.name+(i.cancelled?'!x':'')).join('|')].join('~');
   }
   // Tick every live slot's timer text in place (no re-render, so it never fights
@@ -949,11 +1028,18 @@
       e._dupName = (nameIds[(e.buyer||'').toLowerCase()] ? nameIds[(e.buyer||'').toLowerCase()].size : 0) > 1;
       e._idTag = e._dupName ? String(e.buyerId||'').slice(-4) : '';
     }
+    // Drop selections for orders that have left the queue entirely (fulfilled /
+    // removed). Selections on other pages or hidden by a search stay intact.
+    if(selectedKeys.size){
+      const liveKeys = new Set((state.queue||[]).map(e=>e.key));
+      for(const k of [...selectedKeys]) if(!liveKeys.has(k)) selectedKeys.delete(k);
+    }
     const qEl = document.getElementById('queue');
     if(!list.length){
       if(!qEl.querySelector('.empty')) qEl.innerHTML = '<div class="empty">Queue is empty — waiting on orders.</div>';
       slotNodes.forEach(n=>n.remove()); slotNodes.clear();
       renderQueuePager(0, 1, 0, 0);
+      updateSelBar();
       return;
     }
     const emptyEl = qEl.querySelector('.empty'); if(emptyEl) emptyEl.remove();
@@ -989,10 +1075,14 @@
       }
       // preserve the user's expand/collapse choice across live updates
       node.classList.toggle('expanded', expandedKeys.has(e.key));
+      // keep the selection highlight + checkbox in sync with selectedKeys
+      node.classList.toggle('selected', selectedKeys.has(e.key));
+      const _chk = node.querySelector('.selchk'); if(_chk) _chk.checked = selectedKeys.has(e.key);
       // move into position ONLY if it's not already there (no needless re-attach)
       if(qEl.children[idx] !== node) qEl.insertBefore(node, qEl.children[idx] || null);
     });
     for(const [key,node] of slotNodes){ if(!seen.has(key)){ node.remove(); slotNodes.delete(key); expandedKeys.delete(key); } }
+    updateSelBar();
   }
 
   // Per-variant counter card. Rebuild the structure only when the variant
