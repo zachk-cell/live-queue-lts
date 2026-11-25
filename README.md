@@ -86,6 +86,12 @@ time someone buys in (e.g. "Dragon Frontiers Galaxy Rips LT DADDY BREAK").
 - **＋ New break** opens one by hand from any item text (e.g. `daddy break`) —
   matching items already waiting in the queue are pulled into it.
 - **⚙ Break settings** — break words, auto-open on/off, and a never-a-break list.
+- **Labels** — 🏷 on any entry prints that spot's 2.25×1.25 label; **🏷 All labels**
+  prints every spot in rip order; tick entries for **🏷 Print N selected**. Break
+  labels carry a `BREAK · #n` flag (rip order), the break name + spot count, and
+  `ALSO IN QUEUE` when the buyer has a queue bag too.
+- Queue slots show **🎟 + BREAK ×N** (same order) or **🎟 IN BREAK ×N** (the buyer
+  bought into a break on a separate order).
 - Break-only orders still get the TikTok hold / cancellation re-checks, show on
   the public page under the break, and are included in CSV / SKU exports and
   Past streams.
