@@ -64,6 +64,7 @@
   .brk-rows{border-top:1px solid var(--line)}
   .brk-row{display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap}
   .brk-row:last-child{border-bottom:none}
+  .brk-row .bnum{font-weight:800;color:var(--muted);min-width:22px;text-align:right;font-variant-numeric:tabular-nums}
   .brk-row .bq{font-weight:800;color:#c9b8ff;min-width:28px}
   .brk-row .bname{font-weight:600}
   .brk-row .bh{color:var(--muted);font-size:11.5px}
@@ -1274,7 +1275,10 @@
     el.innerHTML = ordered.map(b=>{
       const isOpen = b.status==='open';
       const collapsed = isOpen ? collapsedBreaks.has(b.id) : !expandedRipped.has(b.id);
-      let entries = b.entries||[];
+      // Breaks never combine: every ORDER is its own entry, ripped in the order
+      // received. Number them (cancelled entries don't take a number).
+      let n = 0;
+      let entries = (b.entries||[]).map(e=>({...e, _n: e.cancelled ? null : ++n}));
       if(filter) entries = entries.filter(e=> (e.buyer||'').toLowerCase().includes(filter) || (e.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(e.orderId).replace(/[^a-z0-9]/gi,'').toLowerCase().includes(fAl)));
       const rows = entries.map(e=>{
         const vars = [...new Set(e.items.map(i=>brkVariant(i.name,b.title)).filter(Boolean))].join(', ');
@@ -1284,6 +1288,7 @@
         else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
         const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
         return `<div class="brk-row${e.cancelled?' cx':''}">`
+          + `<span class="bnum" title="Rip order — breaks are ripped in the order received">${e._n||'–'}</span>`
           + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
           + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
           + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
