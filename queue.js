@@ -1107,12 +1107,13 @@ export class QueueEngine extends EventEmitter {
 
   /** Manually open a break. Anything already sitting in the queue that matches
    *  is pulled out of the queue into the break. */
-  createBreak({ title, match } = {}) {
+  createBreak({ title, match, capacity } = {}) {
     const t = String(title || match || '').trim();
     const m = String(match || title || '').trim().toLowerCase();
     if (!t || !m) return null;
     this.breakIgnore = this.breakIgnore.filter((p) => p !== m);
-    const br = { id: 'brk' + (++this.breakCounter), title: t.slice(0, 120), match: m, status: 'open', auto: false, createdAt: Date.now(), rippedAt: null, capacity: this._capacityFrom(t) };
+    const cap = Math.floor(Number(capacity));
+    const br = { id: 'brk' + (++this.breakCounter), title: t.slice(0, 120), match: m, status: 'open', auto: false, createdAt: Date.now(), rippedAt: null, capacity: cap > 0 ? cap : this._capacityFrom(t) };
     this.breaks.push(br);
     let moved = 0;
     for (const o of this.orders.values()) {
@@ -1149,6 +1150,17 @@ export class QueueEngine extends EventEmitter {
     b.title = t.slice(0, 120);
     this._persist();
     this.emit('change', { reason: 'break-rename', id: b.id });
+    return b;
+  }
+
+  /** Set (or clear, with blank/0) how many spots a break has. */
+  setBreakCapacity(id, n) {
+    const b = this.breaks.find((x) => x.id === String(id));
+    if (!b) return null;
+    const v = Math.floor(Number(n));
+    b.capacity = v > 0 ? Math.min(v, 9999) : null;
+    this._persist();
+    this.emit('change', { reason: 'break-capacity', id: b.id });
     return b;
   }
 

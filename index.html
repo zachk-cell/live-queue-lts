@@ -447,6 +447,8 @@
       <input id="bm-name" class="bm-in" placeholder="e.g. Dragon Frontiers Galaxy Rips LT DADDY BREAK" />
       <label class="bm-l">Item text to match (leave blank to use the name)</label>
       <input id="bm-match" class="bm-in" placeholder="e.g. daddy break" />
+      <label class="bm-l">Total spots (leave blank for no limit)</label>
+      <input id="bm-cap" class="bm-in" type="number" min="1" step="1" placeholder="e.g. 30" style="max-width:160px" />
     </div>
     <div id="bm-cfg">
       <label class="prichk"><input type="checkbox" id="bm-auto"> Automatically open a break for any item whose name contains one of these words</label>
@@ -1358,7 +1360,7 @@
           + `<button class="ghost" onclick="printBreakLabels('${b.id}',false)" title="Print a label for every spot in this break, in rip order">🏷 All labels (${nLive})</button>`
         : '';
       const acts = lblActs + (isOpen
-        ? `<button class="ghost" onclick="renameBreakUI('${b.id}')" title="Rename">✎</button>`
+        ? `<button class="ghost" onclick="renameBreakUI('${b.id}')" title="Edit name / total spots">✎ Edit</button>`
           + `<button class="ghost" onclick="dissolveBreakUI('${b.id}')" title="Not actually a break — send every entry to the live queue">↩ Not a break</button>`
           + `<button class="ripb" onclick="ripBreakUI('${b.id}',true)" title="Break has been ripped — new orders for this product start a fresh break">✓ Ripped</button>`
         : `<button class="ghost" onclick="ripBreakUI('${b.id}',false)" title="Move back to open">↺ Reopen</button>`);
@@ -1409,14 +1411,16 @@
       document.getElementById('bm-ignore').value = (cfg.breakIgnore||[]).join('\n');
     } else if(mode==='rename'){
       const b = (state.breaks||[]).find(x=>x.id===id);
-      document.getElementById('bm-title').textContent = 'Rename break';
-      document.getElementById('bm-desc').textContent = '';
+      document.getElementById('bm-title').textContent = 'Edit break';
+      document.getElementById('bm-desc').textContent = 'Change the name or how many spots this break has. The spot count shows as sold / total, and flags FULL or OVERSOLD.';
       document.getElementById('bm-name').value = b ? b.title : '';
+      document.getElementById('bm-cap').value = (b && b.capacity) ? b.capacity : '';
     } else {
       document.getElementById('bm-title').textContent = 'New break';
       document.getElementById('bm-desc').textContent = 'Any order item containing the match text goes into this break instead of the queue, including items already waiting in the queue.';
       document.getElementById('bm-name').value = '';
       document.getElementById('bm-match').value = '';
+      document.getElementById('bm-cap').value = '';
     }
     document.getElementById('breakModal').classList.add('open');
     setTimeout(()=>{ const f = isCfg ? document.getElementById('bm-words') : document.getElementById('bm-name'); f && f.focus(); }, 30);
@@ -1430,12 +1434,14 @@
     } else if(bmMode==='rename'){
       const t = document.getElementById('bm-name').value.trim();
       if(!t) return;
-      await postJSON('/api/breaks/'+encodeURIComponent(bmId)+'/rename',{title:t});
+      const b = (state.breaks||[]).find(x=>x.id===bmId);
+      if(!b || t !== b.title) await postJSON('/api/breaks/'+encodeURIComponent(bmId)+'/rename',{title:t});
+      await postJSON('/api/breaks/'+encodeURIComponent(bmId)+'/capacity',{capacity: document.getElementById('bm-cap').value.trim()});
     } else {
       const t = document.getElementById('bm-name').value.trim();
       const m = document.getElementById('bm-match').value.trim();
       if(!t && !m) return;
-      await postJSON('/api/breaks',{title:t||m, match:m||t});
+      await postJSON('/api/breaks',{title:t||m, match:m||t, capacity: document.getElementById('bm-cap').value.trim()});
     }
     closeBreakModal();
   }

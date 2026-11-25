@@ -265,10 +265,11 @@ app.post('/api/remove/:key', requireAuth, (req, res) => res.json({ ok: !!queue.r
 
 // ── Breaks (event-style sections; break items stay out of the running queue) ──
 app.post('/api/breaks', requireAuth, (req, res) => {
-  const b = queue.createBreak({ title: req.body.title, match: req.body.match });
+  const b = queue.createBreak({ title: req.body.title, match: req.body.match, capacity: req.body.capacity });
   res.json({ ok: !!b, break: b });
 });
 app.post('/api/breaks/:id/rename', requireAuth, (req, res) => res.json({ ok: !!queue.renameBreak(req.params.id, req.body.title) }));
+app.post('/api/breaks/:id/capacity', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakCapacity(req.params.id, req.body.capacity) }));
 app.post('/api/breaks/:id/rip', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakRipped(req.params.id, req.body.ripped !== false) }));
 app.post('/api/breaks/:id/dissolve', requireAuth, (req, res) => res.json({ ok: !!queue.dissolveBreak(req.params.id) }));
 app.post('/api/breaks/:id/entry/:orderId/to-queue', requireAuth, (req, res) =>
