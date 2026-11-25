@@ -441,6 +441,48 @@ export async function debugCancellations() {
 // (upsertOrder is a no-op on an order already in the queue), so it is always
 // safe to run, even more than once. Only pulls still-unshipped orders, so
 // already-shipped/cancelled ones are never re-added.
+// Admin audit: every order (ANY status) created in the window whose items match
+// `match`, compared against what the queue actually has. Read-only — it never
+// adds anything. Finds orders the poller can't see because TikTok put them in a
+// status other than AWAITING_SHIPMENT (on hold, awaiting collection, etc.).
+export async function auditOrders(queue, minutes = 300, match = '') {
+  if (!tokens.accessToken || !tokens.shopCipher) return { ok: false, error: 'not authorized with TikTok' };
+  const mins = Math.max(1, Math.min(1440, Number(minutes) || 300));
+  const since = Math.floor(Date.now() / 1000) - mins * 60;
+  const needle = String(match || '').toLowerCase().trim();
+  const statuses = ['UNPAID', 'ON_HOLD', 'AWAITING_SHIPMENT', 'PARTIALLY_SHIPPING', 'AWAITING_COLLECTION', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED', 'CANCELLED'];
+  const out = []; const counts = {};
+  for (const st of statuses) {
+    let ids = [];
+    try { ids = await searchOrderIds(since, st); } catch (e) { counts[st] = 'error: ' + e.message; continue; }
+    counts[st] = ids.length;
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50).filter(Boolean);
+      if (!chunk.length) continue;
+      const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: chunk.join(',') });
+      for (const o of (body?.data?.orders || [])) {
+        const n = normalizeOrder(o);
+        const hit = (n.items || []).filter((it) => !needle || String(it.name || '').toLowerCase().includes(needle));
+        if (!hit.length) continue;
+        out.push({
+          status: st, orderId: String(n.id), buyer: n.buyer,
+          spots: hit.reduce((s, it) => s + (it.qty || 1), 0),
+          items: hit.map((it) => `${it.qty}x ${it.name}${it.cancelled ? ' (CANCELLED)' : ''}`),
+          createdAt: n.createdAt, onHold: !!n.onHold,
+          inApp: !!(queue.orders && queue.orders.has(String(n.id))),
+        });
+      }
+    }
+  }
+  out.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  return {
+    ok: true, minutes: mins, match: needle, countsByStatus: counts,
+    totalSpots: out.reduce((s, o) => s + o.spots, 0),
+    missingFromApp: out.filter((o) => !o.inApp),
+    orders: out,
+  };
+}
+
 export async function backfillRecent(queue, minutes = 30) {
   if (!tiktokEnabled()) return { ok: false, error: 'tiktok ingest disabled' };
   if (!queue.live) return { ok: false, error: 'queue is not live — Go Live first' };
