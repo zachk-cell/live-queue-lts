@@ -689,11 +689,44 @@ export class QueueEngine extends EventEmitter {
 
   /** Start a live: archives anything left from a stream that wasn't ended,
    *  clears the queue, and begins accepting orders. */
-  goLive() {
-    this._archiveCurrentStream(); // safety net if the previous stream wasn't ended
+  /** Open breaks that still have spots to rip survive the end of a stream:
+   *  the break plus every order in it (fulfilled spots too, so round/spot
+   *  numbering carries on). Mixed orders keep only their break part — the
+   *  queue clears as before. Closed or fully-fulfilled breaks are dropped. */
+  _carryOverBreaks() {
+    const keepIds = new Set(this.breakSummaries()
+      .filter((b) => b.status === 'open' && b.activeSpots > 0).map((b) => b.id));
+    const orders = [];
+    for (const o of this.orders.values()) {
+      if (o.status === 'cancelled') continue;
+      const bi = (o.breakItems || []).filter((it) => keepIds.has(it.breakId));
+      if (!bi.length) continue;
+      const full = o.fullTotal != null ? o.fullTotal : o.total;
+      const priced = bi.reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0);
+      orders.push({
+        ...o, items: [], breakItems: bi.map((it) => ({ ...it })),
+        status: 'break', breakOnly: true, batchKey: `brk:${o.id}`, bumped: false,
+        total: priced || full, fullTotal: priced || full, carriedOver: true,
+      });
+    }
+    return { breaks: this.breaks.filter((b) => keepIds.has(b.id)), orders };
+  }
+
+  /** Clear the board after archiving, keeping carried-over breaks. */
+  _clearBoardKeepingBreaks() {
+    const keep = this._carryOverBreaks();
     this.orders.clear();
     this.openBatch.clear();
-    this.breaks = []; // breaks are per-stream, like the queue
+    this.breaks = keep.breaks;
+    for (const o of keep.orders) this.orders.set(o.id, o);
+    return keep;
+  }
+
+  goLive() {
+    // Safety net: archive a stream that was never ended. (If it WAS ended,
+    // it's already archived — what's left is only carried-over breaks.)
+    if (this.live) this._archiveCurrentStream();
+    this._clearBoardKeepingBreaks();
     // Per-variant counters PERSIST across streams (cumulative running totals).
     // They are only ever changed by the auto-tally or a manual admin edit/reset.
     this.sessionStartedAt = Date.now();
@@ -712,9 +745,8 @@ export class QueueEngine extends EventEmitter {
    *  main page empties and everything moves to history. Stops new orders. */
   endLive() {
     this._archiveCurrentStream();
-    this.orders.clear();
-    this.openBatch.clear();
-    this.breaks = [];
+    // The queue clears; open breaks with spots left to rip stay put.
+    this._clearBoardKeepingBreaks();
     this.live = false;
     // Freeze the clip timer at the moment the stream went offline. The start time
     // (and clips) are kept so the clip list stays copyable for the editor.

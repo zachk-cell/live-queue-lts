@@ -85,6 +85,11 @@ time someone buys in (e.g. "Dragon Frontiers Galaxy Rips LT DADDY BREAK").
 - **Fulfil** — ✓ on any spot, tick several → **✓ Fulfil N selected**, or
   **✓ Round N done** for a whole round. Fulfilled spots move to a collapsible
   *Fulfilled* list (↩ Undo) and drop off the public page.
+- **Breaks survive End Live** — ending a stream archives it to Past streams and
+  clears the queue, but any OPEN break with spots still to rip stays (numbering,
+  rounds and fulfilled marks intact) and carries into the next live. Closed or
+  fully-fulfilled breaks clear as before. (Restore from a past stream:
+  `GET /api/breaks/restore/<streamId>` previews, `POST` applies.)
 - **✓ Close break** closes a break; any new orders for that product start a fresh
   break (#2, #3 …). **↺ Reopen** undoes it.
 - **↩ Not a break** sends every entry to the live queue and stops treating that

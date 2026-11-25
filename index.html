@@ -785,9 +785,11 @@
       await post('/api/live/on');
     } else {
       const n = (state.stats||{}).activeCount||0;
-      const body = n>0
+      const openB = (state.breaks||[]).filter(b=>b.status==='open' && (b.activeSpots||0)>0);
+      const keepNote = openB.length ? ` Open breaks with spots still to rip (${openB.map(b=>b.title.replace(/\s*\(\d+\s*-?\s*spots?\)\s*/i,' ').trim()+': '+b.activeSpots).join(', ')}) are NOT cleared — they carry over to the next live.` : '';
+      const body = (n>0
         ? `You still have ${n} order${n===1?'':'s'} in the queue that ${n===1?"hasn't":"haven't"} been fulfilled. Ending will archive EVERYTHING (fulfilled, cancelled, and those ${n} unfulfilled) to Past streams and clear the board. New orders stop entering.`
-        : 'This archives this stream (fulfilled + cancelled) to Past streams and clears the board. New orders stop entering. You can review or export it anytime from Past streams.';
+        : 'This archives this stream (fulfilled + cancelled) to Past streams and clears the board. New orders stop entering. You can review or export it anytime from Past streams.') + keepNote;
       if(!(await uiConfirm({title:'End the live?', body, confirmText:'End live', danger:true}))) return;
       await post('/api/live/off');
     }
