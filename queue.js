@@ -1279,6 +1279,82 @@ export class QueueEngine extends EventEmitter {
     return { moved };
   }
 
+  /** Bring unfinished breaks back from a past stream (e.g. the live was ended
+   *  before a break finished, which archives and clears it). Rebuilds each
+   *  break that still had un-fulfilled spots — same title/match/spot total —
+   *  with ALL its entries in their original order, keeping fulfilled marks, so
+   *  round/spot numbering carries on exactly. Queue (non-break) items are not
+   *  restored. apply=false is a dry run that only reports what would happen. */
+  restoreBreaksFromHistory(histId, apply = false) {
+    const h = this.history.find((x) => String(x.id) === String(histId)) || (histId ? null : this.history[0]);
+    if (!h) return { ok: false, error: 'stream not found' };
+    const recs = new Map();
+    for (const r of [...(h.unfulfilled || []), ...(h.fulfilled || [])]) recs.set(String(r.orderId), r);
+    const stripTitle = (t) => String(t || '').replace(/\s*#\d+\s*$/, '').replace(/\s*\(\d{1,4}\s*-?\s*spots?\)\s*$/i, '').trim();
+    const report = [];
+    for (const hb of (h.breaks || [])) {
+      const entries = hb.entries || [];
+      const pending = entries.filter((e) => !e.cancelled && !e.done);
+      if (!pending.length) continue;
+      const match = stripTitle(hb.title).toLowerCase();
+      // Spot total: from the title, else from the item names ("(100 Spot)").
+      let capacity = this._capacityFrom(hb.title);
+      if (!capacity) for (const e of entries) for (const it of (e.items || [])) capacity = Math.max(capacity || 0, this._capacityFrom(it.name) || 0) || null;
+      // One restored order per archived order id, in archive (received) order.
+      const orderIds = [...new Set(entries.filter((e) => !e.cancelled).map((e) => String(e.orderId)))];
+      let lastT = Number(h.startedAt) || 0; let k = 0;
+      const plan = [];
+      for (const oid of orderIds) {
+        const segs = entries.filter((e) => String(e.orderId) === oid && !e.cancelled);
+        const r = recs.get(oid);
+        const items = ((r && r.items) || segs[0].items || []).filter((it) => it.breakId ? it.breakId === hb.id : String(it.name || '').toLowerCase().includes(match));
+        let createdAt = r && r.createdAt ? Number(r.createdAt) : null;
+        if (createdAt && createdAt >= lastT) { lastT = createdAt; k = 0; } else createdAt = lastT + (++k);
+        const doneRounds = {};
+        for (const sg of segs) if (sg.done && sg.round) doneRounds[sg.round] = sg.done;
+        plan.push({
+          id: oid, buyerId: (r && r.buyerId) || ('restored:' + oid), buyer: (r && r.buyer) || segs[0].buyer || 'Buyer',
+          items: items.map(({ breakId: _b, break: _t, ...it }) => it), createdAt, doneRounds,
+          spots: segs.reduce((n, sg) => n + (sg.qty || 0), 0),
+          total: items.reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0) || (r ? Number(r.total || 0) : 0),
+        });
+      }
+      const existing = this.breaks.find((b) => b.status === 'open' && b.match === match);
+      const skip = plan.filter((p) => this.orders.has(p.id));
+      report.push({
+        title: hb.title, match, capacity,
+        orders: plan.length, spots: plan.reduce((n, p) => n + p.spots, 0),
+        doneSpots: entries.filter((e) => !e.cancelled && e.done).reduce((n, e) => n + (e.qty || 0), 0),
+        pendingSpots: pending.reduce((n, e) => n + (e.qty || 0), 0),
+        alreadyPresent: skip.length, into: existing ? existing.id : 'new break',
+      });
+      if (!apply) continue;
+      let br = existing;
+      if (!br) {
+        br = { id: 'brk' + (++this.breakCounter), title: hb.title, match, status: 'open', auto: false, createdAt: Date.now(), rippedAt: null, capacity, restoredFrom: String(h.id) };
+        this.breaks.push(br);
+        this.breakIgnore = this.breakIgnore.filter((p) => p !== match);
+      } else if (!br.capacity && capacity) br.capacity = capacity;
+      for (const p of plan) {
+        if (this.orders.has(p.id)) continue;
+        const o = {
+          id: p.id, buyerId: p.buyerId, buyer: p.buyer, buyerHandle: '',
+          items: [], breakItems: p.items.map((it) => ({ ...it, breakId: br.id })),
+          total: p.total, fullTotal: p.total, createdAt: p.createdAt, receivedAt: Date.now(),
+          status: 'break', batchKey: `brk:${p.id}`, breakOnly: true, hasPriority: false,
+          onHold: false, cancelRequested: false, restored: true,
+        };
+        if (Object.keys(p.doneRounds).length) o.breakDoneRounds = { [br.id]: p.doneRounds };
+        this.orders.set(p.id, o);
+      }
+    }
+    if (apply && report.length) {
+      this._persist();
+      this.emit('change', { reason: 'break-restore', from: String(h.id) });
+    }
+    return { ok: true, stream: String(h.id), applied: !!apply, breaks: report };
+  }
+
   /** Set (or clear, with blank/0) how many spots a break has. */
   setBreakCapacity(id, n) {
     const b = this.breaks.find((x) => x.id === String(id));

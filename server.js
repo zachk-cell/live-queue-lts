@@ -274,6 +274,9 @@ app.post('/api/breaks/:id/rename', requireAuth, (req, res) => res.json({ ok: !!q
 app.post('/api/breaks/:id/done', requireAuth, (req, res) =>
   res.json({ ok: true, ...(queue.setBreakEntriesDone(req.params.id, req.body.orderIds || [], req.body.done !== false) || { count: 0 }) }));
 app.post('/api/breaks/:id/merge-into/:into', requireAuth, (req, res) => res.json({ ok: !!queue.mergeBreak(req.params.id, req.params.into) }));
+// Restore unfinished breaks from a past stream. GET = preview, POST = apply.
+app.get('/api/breaks/restore/:histId', requireAuth, (req, res) => res.json(queue.restoreBreaksFromHistory(req.params.histId, false)));
+app.post('/api/breaks/restore/:histId', requireAuth, (req, res) => res.json(queue.restoreBreaksFromHistory(req.params.histId, true)));
 app.post('/api/breaks/:id/capacity', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakCapacity(req.params.id, req.body.capacity) }));
 app.post('/api/breaks/:id/rip', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakRipped(req.params.id, req.body.ripped !== false) }));
 app.post('/api/breaks/:id/dissolve', requireAuth, (req, res) => res.json({ ok: !!queue.dissolveBreak(req.params.id) }));
