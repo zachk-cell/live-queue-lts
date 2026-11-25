@@ -299,7 +299,8 @@ export class QueueEngine extends EventEmitter {
   /** Every line of an order (queue items + any items that went to a break) —
    *  used for exports/history so nothing that went to a break is lost. */
   _allItems(o) {
-    return [...(o.items || []), ...(o.breakItems || []).map((it) => ({ ...it, break: this._breakTitle(it.breakId) }))];
+    return [...(o.items || []), ...(o.breakItems || []).map((it) => ({ ...it, break: this._breakTitle(it.breakId) })),
+      ...(o.offlineItems || []).map((it) => ({ ...it, offline: true }))];
   }
   _fullTotal(o) { return o.fullTotal != null ? o.fullTotal : o.total; }
 
@@ -397,8 +398,30 @@ export class QueueEngine extends EventEmitter {
     const id = String(raw.id);
     if (this.orders.has(id)) return this.orders.get(id); // idempotent on order id
 
-    // Off-air: when not live, incoming orders are ignored entirely.
-    if (!this.live) return null;
+    // Off-air: when not live, incoming orders are ignored — EXCEPT spots for a
+    // break that's still open, which go straight into that break. Any regular
+    // items in the same order are kept on the entry for reference (not queued).
+    if (!this.live) {
+      const bi = []; const other = [];
+      for (const it of (raw.items || [])) {
+        const br = this._breakFor(it, false);
+        if (br) bi.push({ ...it, breakId: br.id }); else other.push(it);
+      }
+      if (!bi.length) return null;
+      const priced = bi.reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0);
+      const order = {
+        id, buyerId: String(raw.buyerId), buyer: raw.buyer || 'Buyer', buyerHandle: raw.buyerHandle || '',
+        items: [], breakItems: bi, offlineItems: other,
+        total: priced || Number(raw.total || 0), fullTotal: Number(raw.total || 0),
+        createdAt: raw.createdAt || Date.now(), receivedAt: Date.now(),
+        status: 'break', batchKey: `brk:${id}`, breakOnly: true, hasPriority: false, offline: true,
+        onHold: !!raw.onHold, cancelRequested: !!raw.cancelRequested,
+      };
+      this.orders.set(id, order);
+      this._persist();
+      this.emit('change', { reason: 'break-entry-offline', order });
+      return order;
+    }
 
     const buyerId = String(raw.buyerId);
     const createdAt0 = raw.createdAt || Date.now();
@@ -1034,6 +1057,9 @@ export class QueueEngine extends EventEmitter {
   }
 
   // ── Breaks ─────────────────────────────────────────────────────────────────
+  /** True if any break is open — the poller keeps listening offline then. */
+  hasOpenBreaks() { return this.breaks.some((b) => b.status === 'open'); }
+
   _breakTitle(id) {
     const b = this.breaks.find((x) => x.id === id);
     return b ? b.title : 'Break';
@@ -1128,6 +1154,8 @@ export class QueueEngine extends EventEmitter {
           queuePos, sameOrder, queuePartFulfilled: o.status === 'fulfilled',
           mixed: (o.items || []).length > 0,
           done: (o.breakDone && o.breakDone[b.id]) || null,
+          offline: !!o.offline,
+          offlineItems: (o.offlineItems || []).map((it) => ({ name: it.name, qty: it.qty || 1 })),
         });
       }
       entries.sort((a, c) => (a.createdAt || 0) - (c.createdAt || 0));

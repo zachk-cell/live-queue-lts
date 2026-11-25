@@ -520,17 +520,33 @@ export function startPolling(queue) {
   if (queue.live && queue.sessionStartedAt) {
     sinceEpoch = Math.max(Math.floor(queue.sessionStartedAt / 1000), capFloor);
     console.log('[tiktok] boot: resuming ingest window from', new Date(sinceEpoch * 1000).toISOString(), `(capped at ${capMin} min back)`);
+  } else if (!queue.live && queue.streamEndAt && queue.hasOpenBreaks && queue.hasOpenBreaks()) {
+    // Offline with open breaks: resume listening from when the live ended.
+    sinceEpoch = Math.max(Math.floor(queue.streamEndAt / 1000) - 300, capFloor);
+    console.log('[tiktok] boot (offline): listening for break orders since', new Date(sinceEpoch * 1000).toISOString());
   }
   const seen = new Set();
 
   // Each new live starts a fresh window: only orders placed after Go Live count.
+  // Ending the live starts the OFFLINE window (break orders only), with a small
+  // overlap so a break order placed in the final minutes isn't missed.
   queue.on('change', (e) => {
     if (e && e.reason === 'go-live') { sinceEpoch = Math.floor(Date.now() / 1000); seen.clear(); }
+    if (e && e.reason === 'end-live') { sinceEpoch = Math.floor(Date.now() / 1000) - 300; }
   });
 
+  // While OFFLINE the poller keeps running only if a break is still open, and
+  // at a slower pace; upsertOrder then accepts break items for open breaks only.
+  const offlineEvery = Number(process.env.TIKTOK_OFFLINE_POLL_MS) || 30000;
+  let lastOffline = 0;
   let polling = false;
   async function poll() {
-    if (!tiktokEnabled() || !queue.live || !tokens.accessToken || !tokens.shopCipher) return;
+    if (!tiktokEnabled() || !tokens.accessToken || !tokens.shopCipher) return;
+    if (!queue.live) {
+      if (!(queue.hasOpenBreaks && queue.hasOpenBreaks())) return;
+      if (Date.now() - lastOffline < offlineEvery) return;
+      lastOffline = Date.now();
+    }
     // Overlap guard: if the TikTok API is slow and a cycle runs long, don't let
     // the interval stack a second poll on top of it. Overlapping cycles multiply
     // API load, compound slowness, and can exhaust connections — so skip this
@@ -585,7 +601,7 @@ export function startPolling(queue) {
   }
   const timer = setInterval(poll, interval);
   timer.unref?.();
-  console.log(`[tiktok] polling every ${interval}ms while live`);
+  console.log(`[tiktok] polling every ${interval}ms while live (every ${offlineEvery}ms offline while a break is open)`);
 }
 
 // ---------------- Auth routes ----------------

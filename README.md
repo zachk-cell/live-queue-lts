@@ -90,6 +90,12 @@ time someone buys in (e.g. "Dragon Frontiers Galaxy Rips LT DADDY BREAK").
   rounds and fulfilled marks intact) and carries into the next live. Closed or
   fully-fulfilled breaks clear as before. (Restore from a past stream:
   `GET /api/breaks/restore/<streamId>` previews, `POST` applies.)
+- **Break orders keep coming in while offline** — after End Live, if any break is
+  still open the TikTok poller keeps running (every 30s, `TIKTOK_OFFLINE_POLL_MS`)
+  and spots for an OPEN break go straight into it, in order. Everything else is
+  still ignored while offline; no new breaks are auto-opened offline. An offline
+  order's regular items aren't queued — the entry shows a 🌙 offline badge listing
+  them (and they're in the exports).
 - **✓ Close break** closes a break; any new orders for that product start a fresh
   break (#2, #3 …). **↺ Reopen** undoes it.
 - **↩ Not a break** sends every entry to the live queue and stops treating that

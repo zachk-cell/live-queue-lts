@@ -373,7 +373,7 @@
   <div id="variants-admin"></div>
 
   <div id="offline-banner" class="offline-banner" style="display:none">
-    ⚫ You're <b>offline</b> — new orders are being ignored and won't enter the queue. Hit <b>Go Live</b> to start a fresh queue and begin accepting orders.
+    ⚫ You're <b>offline</b> — new orders are being ignored and won't enter the queue. Hit <b>Go Live</b> to start a fresh queue and begin accepting orders. <span id="offline-brk-note"></span>
   </div>
 
   <div id="tt-banner" class="offline-banner" style="display:none"></div>
@@ -1330,6 +1330,7 @@
     if(e.sameOrder && e.queuePos) qb = `<span class="badge bsame" title="This same order also has regular items — they are in the live queue at #${e.queuePos}.">📦 SAME ORDER · QUEUE #${e.queuePos}</span>`;
     else if(e.sameOrder && e.queuePartFulfilled) qb = `<span class="badge bdone" title="This order also had regular items; that part was already fulfilled from the queue.">📦 queue part fulfilled</span>`;
     else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
+    const offB = e.offline ? `<span class="badge bother" title="Came in while the queue was offline${(e.offlineItems||[]).length?' — this order ALSO has regular items that were NOT queued: '+esc(e.offlineItems.map(i=>i.qty+'× '+i.name).join(', ')):''}">🌙 offline${(e.offlineItems||[]).length?' · + '+e.offlineItems.reduce((n,i)=>n+i.qty,0)+' other item'+(e.offlineItems.reduce((n,i)=>n+i.qty,0)===1?'':'s'):''}</span>` : '';
     const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
     const sk = b.id+'|'+e.segKey;
     const oid = esc(e.orderId);
@@ -1342,7 +1343,7 @@
       + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
       + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
       + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
-      + partB + qb + cx
+      + partB + offB + qb + cx
       + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
       + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
       + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${seg}')">🏷</button>` : '')
@@ -1542,6 +1543,9 @@
     lb.textContent = live ? '■ End Live' : '● Go Live';
     lb.classList.toggle('off', !live);
     document.getElementById('offline-banner').style.display = live ? 'none' : 'block';
+    { const ob = (state.breaks||[]).filter(b=>b.status==='open').length;
+      const el = document.getElementById('offline-brk-note');
+      if(el) el.innerHTML = (!live && ob) ? `<br>🎟 Still listening for <b>break</b> orders: spots for the ${ob} open break${ob===1?'':'s'} keep coming in below (checked every 30s).` : ''; }
 
     document.getElementById('s-active').textContent = st.activeCount||0;
     document.getElementById('s-pri').textContent = st.priorityCount||0;
