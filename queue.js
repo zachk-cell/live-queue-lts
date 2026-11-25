@@ -766,6 +766,29 @@ export class QueueEngine extends EventEmitter {
     }
 
     const ordered = [...bumped, ...(anchor ? [anchor] : []), ...staggered];
+    // Break spots this buyer holds on OTHER orders (bought separately) — so the
+    // packer sees the buyer is also in a break even though it's not this order.
+    const byBuyer = new Map();
+    for (const o of this.orders.values()) {
+      if (o.status === 'cancelled' || !(o.breakItems || []).length) continue;
+      for (const it of o.breakItems) {
+        if (it.cancelled) continue;
+        if (!byBuyer.has(o.buyerId)) byBuyer.set(o.buyerId, []);
+        byBuyer.get(o.buyerId).push({ orderId: o.id, breakId: it.breakId, name: it.name, qty: it.qty || 1 });
+      }
+    }
+    for (const e of ordered) {
+      const mine = new Set(e.orderIds);
+      const m = new Map();
+      for (const x of (byBuyer.get(e.buyerId) || [])) {
+        if (mine.has(x.orderId)) continue;
+        const prev = m.get(x.breakId) || { breakId: x.breakId, title: this._breakTitle(x.breakId), qty: 0, orderIds: [] };
+        prev.qty += x.qty;
+        if (!prev.orderIds.includes(x.orderId)) prev.orderIds.push(x.orderId);
+        m.set(x.breakId, prev);
+      }
+      e.otherBreaks = [...m.values()];
+    }
     return ordered.map((e, idx) => ({ ...e, position: idx + 1 }));
   }
 
