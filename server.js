@@ -153,8 +153,10 @@ function publicView() {
     // Open breaks with who's in them (display names only — never @usernames).
     breaks: live
       ? (snap.breaks || []).filter((b) => b.status === 'open').map((b) => ({
-          id: b.id, title: b.title, spots: b.spots, capacity: b.capacity || null,
-          entries: b.entries.filter((e) => !e.cancelled).map((e) => ({ buyer: e.buyer, qty: e.qty })),
+          id: b.id, title: b.title, spots: b.capacity ? b.currentRoundSpots : b.activeSpots, capacity: b.capacity || null,
+          round: b.capacity ? b.currentRound : null,
+          // Only spots still waiting to be ripped/fulfilled.
+          entries: b.entries.filter((e) => !e.cancelled && !e.done).map((e) => ({ buyer: e.buyer, qty: e.qty, round: e.round, spot: e.spotStart })),
         }))
       : [],
   };
@@ -269,6 +271,9 @@ app.post('/api/breaks', requireAuth, (req, res) => {
   res.json({ ok: !!b, break: b });
 });
 app.post('/api/breaks/:id/rename', requireAuth, (req, res) => res.json({ ok: !!queue.renameBreak(req.params.id, req.body.title) }));
+app.post('/api/breaks/:id/done', requireAuth, (req, res) =>
+  res.json({ ok: true, ...(queue.setBreakEntriesDone(req.params.id, req.body.orderIds || [], req.body.done !== false) || { count: 0 }) }));
+app.post('/api/breaks/:id/merge-into/:into', requireAuth, (req, res) => res.json({ ok: !!queue.mergeBreak(req.params.id, req.params.into) }));
 app.post('/api/breaks/:id/capacity', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakCapacity(req.params.id, req.body.capacity) }));
 app.post('/api/breaks/:id/rip', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakRipped(req.params.id, req.body.ripped !== false) }));
 app.post('/api/breaks/:id/dissolve', requireAuth, (req, res) => res.json({ ok: !!queue.dissolveBreak(req.params.id) }));

@@ -79,7 +79,13 @@ time someone buys in (e.g. "Dragon Frontiers Galaxy Rips LT DADDY BREAK").
   **🎟 + BREAK ×N** badge (expanded view lists the break items as *NOT in this
   bag*), and the break entry shows **📦 SAME ORDER · QUEUE #N**. If the buyer just
   has a separate order waiting in the queue it shows **📦 also in queue #N**.
-- **✓ Ripped** closes a break; any new orders for that product start a fresh
+- **Rounds (back-to-back breaks)** — set **Total spots** (✎ Edit, or "(33 Spot)" in
+  the product name) and spots are grouped into rounds in the order received:
+  spots 1–33 = Round 1, 34–66 = Round 2, … Never combined.
+- **Fulfil** — ✓ on any spot, tick several → **✓ Fulfil N selected**, or
+  **✓ Round N done** for a whole round. Fulfilled spots move to a collapsible
+  *Fulfilled* list (↩ Undo) and drop off the public page.
+- **✓ Close break** closes a break; any new orders for that product start a fresh
   break (#2, #3 …). **↺ Reopen** undoes it.
 - **↩ Not a break** sends every entry to the live queue and stops treating that
   product as a break. **→ queue** does the same for a single entry.

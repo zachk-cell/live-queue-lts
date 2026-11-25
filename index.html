@@ -67,7 +67,16 @@
   .brk-row .bchk{width:15px;height:15px;margin:0;flex:none;accent-color:#7c63d6;cursor:pointer}
   .brk-row.bsel{background:rgba(124,99,214,.12)}
   .brk-acts{flex-wrap:wrap}
-  .brk-row .bnum{font-weight:800;color:var(--muted);min-width:22px;text-align:right;font-variant-numeric:tabular-nums}
+  .brk-row .bnum{font-weight:800;color:var(--muted);min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+  .brk-row.bdoner{opacity:.55}
+  .brk-row .bful{color:var(--done);border-color:#2b6a46}
+  .brk-round{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 11px;background:rgba(124,99,214,.10);border-bottom:1px solid var(--line)}
+  .brk-rn{font-weight:800;font-size:12.5px;letter-spacing:.3px;color:#d9ccff;text-transform:uppercase}
+  .brk-rmeta{color:var(--muted);font-size:12px}
+  .brk-racts{margin-left:auto;display:flex;gap:6px}
+  .brk-racts .bful{background:rgba(37,194,110,.12)}
+  .brk-donehead{padding:8px 11px;color:var(--done);font-size:12.5px;font-weight:700;cursor:pointer;border-top:1px solid var(--line);user-select:none}
+  .brk-donehead .cav{display:inline-block;width:12px;color:var(--muted)}
   .brk-row .bq{font-weight:800;color:#c9b8ff;min-width:28px}
   .brk-row .bname{font-weight:600}
   .brk-row .bh{color:var(--muted);font-size:11.5px}
@@ -697,11 +706,16 @@
   // spot count, and an ALSO IN QUEUE flag when the buyer has a queue bag too.
   const selBreak = new Set(); // "breakId|orderId" ticked for batch printing
   function _breakNumbered(b){
-    let n = 0;
-    return (b.entries||[]).map(e=>({...e, _n: e.cancelled ? null : ++n}));
+    // Spot numbers come from the server (round + spotStart/spotEnd, in the
+    // order received). "R2 · #5–7" with a total set, otherwise "#5–7".
+    return (b.entries||[]).map(e=>{
+      if(e.cancelled || !e.spotStart) return {...e, _spot:null, _lbl:null};
+      const rng = '#'+e.spotStart+(e.spotEnd>e.spotStart?'–'+e.spotEnd:'');
+      return {...e, _spot: rng, _lbl: (b.capacity ? 'R'+e.round+' · ' : '') + rng};
+    });
   }
   function _breakLabelEntry(b, e){
-    const flags = ['BREAK' + (e._n ? ' · #' + e._n : '')];
+    const flags = ['BREAK' + (e._lbl ? ' · ' + e._lbl : '')];
     if(e.queuePos || e.sameOrder || e.queuePartFulfilled) flags.push('ALSO IN QUEUE');
     const shortTitle = String(b.title||'Break').replace(/\s*\(\d+\s*-?\s*spots?\)\s*/i,' ').trim();
     return {
@@ -717,7 +731,7 @@
   }
   function printBreakLabels(breakId, onlySelected){
     const b = (state.breaks||[]).find(x=>x.id===breakId); if(!b) return;
-    let list = _breakNumbered(b).filter(e=>!e.cancelled);
+    let list = _breakNumbered(b).filter(e=>!e.cancelled && !e.done);
     if(onlySelected) list = list.filter(e=>selBreak.has(b.id+'|'+e.orderId));
     _printLabels(list.map(e=>_breakLabelEntry(b, e)));
     if(onlySelected){ list.forEach(e=>selBreak.delete(b.id+'|'+e.orderId)); breaksSig=''; renderBreaks(); }
@@ -1308,70 +1322,132 @@
     if(!v || /^default( title)?$/i.test(v.trim())) return '';
     return v;
   }
+  function _brkRow(b, e, isOpen){
+    const vars = [...new Set(e.items.map(i=>brkVariant(i.name,b.title)).filter(Boolean))].join(', ');
+    let qb = '';
+    if(e.sameOrder && e.queuePos) qb = `<span class="badge bsame" title="This same order also has regular items — they are in the live queue at #${e.queuePos}.">📦 SAME ORDER · QUEUE #${e.queuePos}</span>`;
+    else if(e.sameOrder && e.queuePartFulfilled) qb = `<span class="badge bdone" title="This order also had regular items; that part was already fulfilled from the queue.">📦 queue part fulfilled</span>`;
+    else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
+    const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
+    const sk = b.id+'|'+e.orderId;
+    const oid = esc(e.orderId);
+    const live = !e.cancelled && !e.done;
+    return `<div class="brk-row${e.cancelled?' cx':''}${e.done?' bdoner':''}${selBreak.has(sk)?' bsel':''}">`
+      + (live ? `<input type="checkbox" class="bchk" ${selBreak.has(sk)?'checked':''} title="Select — then fulfil or print the selected spots together" onchange="toggleBreakSel('${b.id}','${oid}')">` : '<span class="bchk"></span>')
+      + `<span class="bnum" title="Spot number${b.capacity?' within this round':''} — breaks are ripped in the order received">${e._spot||'–'}</span>`
+      + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
+      + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
+      + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
+      + qb + cx
+      + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
+      + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
+      + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${oid}')">🏷</button>` : '')
+      + (e.done
+          ? `<button class="undob" title="Undo — put this spot back to be ripped" onclick="setBreakDone('${b.id}',['${oid}'],false)">↩ Undo</button>`
+          : (live ? `<button class="undob bful" title="Mark this spot fulfilled" onclick="setBreakDone('${b.id}',['${oid}'],true)">✓</button>` : ''))
+      + (isOpen && live ? `<button class="undob" title="Wrong match — send this entry to the live queue instead" onclick="breakEntryToQueue('${b.id}','${oid}')">→ queue</button>` : '')
+      + `</div>`;
+  }
   function renderBreaks(){
     const list = state.breaks || [];
     const filter = (document.getElementById('search').value||'').toLowerCase().trim();
     const fAl = filter.replace(/[^a-z0-9]/g,'');
-    const sig = JSON.stringify([list, filter, [...collapsedBreaks], [...expandedRipped], [...selBreak]]);
+    const sig = JSON.stringify([list, filter, [...collapsedBreaks], [...expandedRipped], [...selBreak], [...showDoneBreaks]]);
     if(sig === breaksSig) return;
     breaksSig = sig;
     const open = list.filter(b=>b.status==='open');
-    const spots = open.reduce((n,b)=>n+(b.spots||0),0);
+    const toRip = open.reduce((n,b)=>n+(b.activeSpots||0),0);
     document.getElementById('brk-n').textContent = list.length
-      ? `${open.length} open · ${spots} spot${spots===1?'':'s'}` : '';
+      ? `${open.length} open · ${toRip} spot${toRip===1?'':'s'} to rip` : '';
     const el = document.getElementById('brk-list');
     if(!list.length){
       el.innerHTML = '<div class="brk-empty">No breaks yet. Break items (anything with "break" in the name) open a break here automatically and stay out of the queue.</div>';
       return;
     }
+    const matches = (e)=> !filter || (e.buyer||'').toLowerCase().includes(filter) || (e.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(e.orderId).replace(/[^a-z0-9]/gi,'').toLowerCase().includes(fAl));
     const ordered = [...open.slice().reverse(), ...list.filter(b=>b.status!=='open').slice().reverse()];
     el.innerHTML = ordered.map(b=>{
       const isOpen = b.status==='open';
       const collapsed = isOpen ? collapsedBreaks.has(b.id) : !expandedRipped.has(b.id);
-      // Breaks never combine: every ORDER is its own entry, ripped in the order
-      // received. Number them (cancelled entries don't take a number).
-      let entries = _breakNumbered(b);
-      const nSel = entries.filter(e=>!e.cancelled && selBreak.has(b.id+'|'+e.orderId)).length;
-      const nLive = entries.filter(e=>!e.cancelled).length;
-      if(filter) entries = entries.filter(e=> (e.buyer||'').toLowerCase().includes(filter) || (e.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(e.orderId).replace(/[^a-z0-9]/gi,'').toLowerCase().includes(fAl)));
-      const rows = entries.map(e=>{
-        const vars = [...new Set(e.items.map(i=>brkVariant(i.name,b.title)).filter(Boolean))].join(', ');
-        let qb = '';
-        if(e.sameOrder && e.queuePos) qb = `<span class="badge bsame" title="This same order also has regular items — they are in the live queue at #${e.queuePos}.">📦 SAME ORDER · QUEUE #${e.queuePos}</span>`;
-        else if(e.sameOrder && e.queuePartFulfilled) qb = `<span class="badge bdone" title="This order also had regular items; that part was already fulfilled from the queue.">📦 queue part fulfilled</span>`;
-        else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
-        const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
-        const sk = b.id+'|'+e.orderId;
-        return `<div class="brk-row${e.cancelled?' cx':''}${selBreak.has(sk)?' bsel':''}">`
-          + (e.cancelled ? '<span class="bchk"></span>' : `<input type="checkbox" class="bchk" ${selBreak.has(sk)?'checked':''} title="Select for batch label printing" onchange="toggleBreakSel('${b.id}','${esc(e.orderId)}')">`)
-          + `<span class="bnum" title="Rip order — breaks are ripped in the order received">${e._n||'–'}</span>`
-          + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
-          + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
-          + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
-          + qb + cx
-          + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
-          + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
-          + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${esc(e.orderId)}')">🏷</button>` : '')
-          + (isOpen && !e.cancelled ? `<button class="undob" title="Wrong match — send this entry to the live queue instead" onclick="breakEntryToQueue('${b.id}','${esc(e.orderId)}')">→ queue</button>` : '')
-          + `</div>`;
-      }).join('') || `<div class="brk-empty">${filter?'No entries match the search.':'No entries yet.'}</div>`;
-      const lblActs = nLive
-        ? (nSel ? `<button class="primary" onclick="printBreakLabels('${b.id}',true)" title="Print labels for the ticked spots, in rip order">🏷 Print ${nSel} selected</button>` : '')
-          + `<button class="ghost" onclick="printBreakLabels('${b.id}',false)" title="Print a label for every spot in this break, in rip order">🏷 All labels (${nLive})</button>`
+      const all = _breakNumbered(b);
+      const active = all.filter(e=>!e.cancelled && !e.done);
+      const done = all.filter(e=>e.done && !e.cancelled);
+      const cancelled = all.filter(e=>e.cancelled);
+      const nSel = active.filter(e=>selBreak.has(b.id+'|'+e.orderId)).length;
+      // Active spots, grouped into back-to-back rounds when a total is set.
+      let rows = '';
+      if(b.capacity){
+        const byRound = new Map();
+        for(const e of active){ if(!byRound.has(e.round)) byRound.set(e.round, []); byRound.get(e.round).push(e); }
+        for(const [r, es] of byRound){
+          const info = (b.rounds||[]).find(x=>x.n===r) || {spots:0, doneSpots:0};
+          const full = info.spots >= b.capacity;
+          const shown = es.filter(matches);
+          rows += `<div class="brk-round"><span class="brk-rn">Round ${r}</span>`
+            + `<span class="brk-rmeta"><b>${info.spots} / ${b.capacity}</b> spots${info.doneSpots?` · ${info.doneSpots} done`:''}</span>`
+            + (full ? '<span class="badge bdone">FULL</span>' : (r===b.currentRound ? '<span class="badge bother">FILLING</span>' : ''))
+            + `<span class="brk-racts">`
+            + `<button class="undob" onclick="printBreakRound('${b.id}',${r})" title="Print labels for every spot left in round ${r}">🏷 Round labels</button>`
+            + `<button class="undob bful" onclick="fulfilBreakRound('${b.id}',${r})" title="Mark every spot left in round ${r} fulfilled">✓ Round ${r} done (${es.length})</button>`
+            + `</span></div>`
+            + (shown.map(e=>_brkRow(b,e,isOpen)).join('') || '<div class="brk-empty">No spots in this round match the search.</div>');
+        }
+      } else {
+        rows = active.filter(matches).map(e=>_brkRow(b,e,isOpen)).join('');
+      }
+      if(!active.length) rows = `<div class="brk-empty">${done.length ? 'Every spot is fulfilled.' : 'No entries yet.'}</div>`;
+      else if(!rows) rows = '<div class="brk-empty">No entries match the search.</div>';
+      if(cancelled.filter(matches).length) rows += cancelled.filter(matches).map(e=>_brkRow(b,e,isOpen)).join('');
+      if(done.length){
+        const sd = showDoneBreaks.has(b.id);
+        const dSpots = done.reduce((n,e)=>n+e.qty,0);
+        rows += `<div class="brk-donehead" onclick="toggleDoneBreak('${b.id}')"><span class="cav">${sd?'▾':'▸'}</span>✓ Fulfilled — ${dSpots} spot${dSpots===1?'':'s'} (${done.length} order${done.length===1?'':'s'})</div>`
+          + (sd ? done.filter(matches).map(e=>_brkRow(b,e,isOpen)).join('') : '');
+      }
+      const selActs = nSel
+        ? `<button class="ripb" onclick="fulfilBreakSelected('${b.id}')" title="Mark the ticked spots fulfilled">✓ Fulfil ${nSel} selected</button>`
+          + `<button class="primary" onclick="printBreakLabels('${b.id}',true)" title="Print labels for the ticked spots, in rip order">🏷 Print ${nSel} selected</button>`
         : '';
-      const acts = lblActs + (isOpen
+      const lblActs = active.length ? `<button class="ghost" onclick="printBreakLabels('${b.id}',false)" title="Print a label for every spot still to rip, in rip order">🏷 All labels (${active.length})</button>` : '';
+      const acts = selActs + lblActs + (isOpen
         ? `<button class="ghost" onclick="renameBreakUI('${b.id}')" title="Edit name / total spots">✎ Edit</button>`
           + `<button class="ghost" onclick="dissolveBreakUI('${b.id}')" title="Not actually a break — send every entry to the live queue">↩ Not a break</button>`
-          + `<button class="ripb" onclick="ripBreakUI('${b.id}',true)" title="Break has been ripped — new orders for this product start a fresh break">✓ Ripped</button>`
+          + `<button class="ghost" onclick="ripBreakUI('${b.id}',true)" title="Close this break — new orders for this product start a fresh break">✓ Close break</button>`
         : `<button class="ghost" onclick="ripBreakUI('${b.id}',false)" title="Move back to open">↺ Reopen</button>`);
+      const meta = b.capacity
+        ? `Round ${b.currentRound}: <b>${b.currentRoundSpots} / ${b.capacity}</b> · ${b.activeSpots} to rip · ${b.doneSpots} done`
+        : `<b>${b.activeSpots}</b> spot${b.activeSpots===1?'':'s'} to rip · ${b.doneSpots} done · ${b.buyers} buyer${b.buyers===1?'':'s'}`;
       return `<div class="brk ${isOpen?'open':'ripped'}${collapsed?' collapsed':''}">`
         + `<div class="brk-top" onclick="toggleBreak('${b.id}',${isOpen})"><span class="cav">▾</span>`
-        + `<span class="brk-title">${esc(b.title)}</span><span class="brk-pill">${isOpen?'OPEN':'RIPPED'}</span>`
-        + `<span class="brk-meta">${b.capacity?`<b>${b.spots} / ${b.capacity}</b> spots`:`${b.spots} spot${b.spots===1?'':'s'}`} · ${b.buyers} buyer${b.buyers===1?'':'s'}${b.value?' · '+money(b.value):''}</span>`
-        + (b.capacity && b.spots>=b.capacity ? `<span class="badge ${b.spots>b.capacity?'hold':'bdone'}" title="${b.spots>b.capacity?'More spots sold than the break has — check for an oversell':'Every spot is sold'}">${b.spots>b.capacity?'⚠ OVERSOLD +'+(b.spots-b.capacity):'FULL'}</span>` : '')
+        + `<span class="brk-title">${esc(b.title)}</span><span class="brk-pill">${isOpen?'OPEN':'CLOSED'}</span>`
+        + `<span class="brk-meta">${meta}</span>`
         + `<span class="brk-acts" onclick="event.stopPropagation()">${acts}</span></div>`
         + `<div class="brk-rows">${rows}</div></div>`;
     }).join('');
+  }
+  const showDoneBreaks = new Set();
+  function toggleDoneBreak(id){ if(showDoneBreaks.has(id)) showDoneBreaks.delete(id); else showDoneBreaks.add(id); renderBreaks(); }
+  function setBreakDone(id, orderIds, done){
+    orderIds.forEach(o=>selBreak.delete(id+'|'+o));
+    postJSON('/api/breaks/'+encodeURIComponent(id)+'/done',{orderIds, done});
+  }
+  function fulfilBreakSelected(id){
+    const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
+    const ids = (b.entries||[]).filter(e=>!e.cancelled && !e.done && selBreak.has(id+'|'+e.orderId)).map(e=>String(e.orderId));
+    if(ids.length) setBreakDone(id, ids, true);
+  }
+  async function fulfilBreakRound(id, r){
+    const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
+    const es = (b.entries||[]).filter(e=>!e.cancelled && !e.done && e.round===r);
+    if(!es.length) return;
+    const spots = es.reduce((n,e)=>n+e.qty,0);
+    const ok = await uiConfirm({title:`Round ${r} done?`, body:`Marks all ${spots} remaining spot${spots===1?'':'s'} in round ${r} (${es.length} order${es.length===1?'':'s'}) as fulfilled. You can undo any of them from the Fulfilled list.`, confirmText:`✓ Round ${r} done`});
+    if(ok) setBreakDone(id, es.map(e=>String(e.orderId)), true);
+  }
+  function printBreakRound(id, r){
+    const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
+    const list = _breakNumbered(b).filter(e=>!e.cancelled && !e.done && e.round===r);
+    _printLabels(list.map(e=>_breakLabelEntry(b, e)));
   }
   function toggleBreak(id, isOpen){
     const set = isOpen ? collapsedBreaks : expandedRipped;
@@ -1381,7 +1457,7 @@
   async function postJSON(url, body){ return fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}); }
   async function ripBreakUI(id, ripped){
     if(ripped){
-      const ok = await uiConfirm({title:'Mark break ripped?', body:'The break moves to the ripped list. Any NEW orders for this product after this will start a fresh break.', confirmText:'✓ Ripped'});
+      const ok = await uiConfirm({title:'Close this break?', body:'The break moves to the closed list (spots that are not fulfilled stay listed there). Any NEW orders for this product after this will start a fresh break. To clear ripped spots but keep the break open, use the ✓ buttons or Round done instead.', confirmText:'✓ Close break'});
       if(!ok) return;
     }
     postJSON('/api/breaks/'+encodeURIComponent(id)+'/rip',{ripped});

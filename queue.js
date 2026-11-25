@@ -282,7 +282,7 @@ export class QueueEngine extends EventEmitter {
   /** Detailed per-order records of everything fulfilled this session. */
   fulfilledRecords() {
     return [...this.orders.values()]
-      .filter((o) => o.status === 'fulfilled')
+      .filter((o) => o.status === 'fulfilled' || (o.status === 'break' && this._breakAllDone(o)))
       .sort((a, b) => (b.fulfilledAt || 0) - (a.fulfilledAt || 0))
       .map((o) => ({
         orderId: o.id,
@@ -290,7 +290,7 @@ export class QueueEngine extends EventEmitter {
         buyer: o.buyer,
         items: this._allItems(o),
         total: this._fullTotal(o),
-        fulfilledAt: o.fulfilledAt,
+        fulfilledAt: o.fulfilledAt || (o.breakDone ? Math.max(0, ...Object.values(o.breakDone)) : null),
       }));
   }
 
@@ -353,7 +353,7 @@ export class QueueEngine extends EventEmitter {
    *  session — captured when a stream is archived so nothing is silently lost. */
   queuedRecords() {
     return [...this.orders.values()]
-      .filter((o) => o.status === 'queued' || o.status === 'break')
+      .filter((o) => o.status === 'queued' || (o.status === 'break' && !this._breakAllDone(o)))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .map((o) => ({
         orderId: o.id,
@@ -676,7 +676,7 @@ export class QueueEngine extends EventEmitter {
         unfulfilled: unfulfilledRecs,
         breaks: this.breakSummaries().map((b) => ({
           id: b.id, title: b.title, status: b.status, spots: b.spots, value: b.value,
-          entries: b.entries.map((e) => ({ orderId: e.orderId, buyer: e.buyer, qty: e.qty, items: e.items, cancelled: e.cancelled })),
+          entries: b.entries.map((e) => ({ orderId: e.orderId, buyer: e.buyer, qty: e.qty, items: e.items, cancelled: e.cancelled, done: e.done, round: e.round })),
         })),
       });
       this.history = this.history.slice(0, MAX_HISTORY);
@@ -835,7 +835,7 @@ export class QueueEngine extends EventEmitter {
       activeCount: active.length,
       priorityCount: active.filter((e) => e.isPriority).length,
       breakOpen: this.breaks.filter((b) => b.status === 'open').length,
-      breakSpots: this.breakSummaries().filter((b) => b.status === 'open').reduce((n, b) => n + b.spots, 0),
+      breakSpots: this.breakSummaries().filter((b) => b.status === 'open').reduce((n, b) => n + b.activeSpots, 0),
       fulfilledCount: done.length,
       activeValue: active.reduce((s, e) => s + e.total, 0),
       priorityItems: this.priorityItems,
@@ -1092,15 +1092,43 @@ export class QueueEngine extends EventEmitter {
           cancelRequested: !!o.cancelRequested, onHold: !!o.onHold,
           queuePos, sameOrder, queuePartFulfilled: o.status === 'fulfilled',
           mixed: (o.items || []).length > 0,
+          done: (o.breakDone && o.breakDone[b.id]) || null,
         });
       }
       entries.sort((a, c) => (a.createdAt || 0) - (c.createdAt || 0));
       const live = entries.filter((e) => !e.cancelled);
+      // Back-to-back rounds: with a spot total set, spots 1..cap are round 1,
+      // cap+1..2cap round 2, and so on, in the order received. Each entry gets
+      // its round and its spot numbers within that round.
+      const cap = b.capacity > 0 ? b.capacity : null;
+      let cum = 0;
+      for (const e of live) {
+        e.round = cap ? Math.floor(cum / cap) + 1 : 1;
+        e.spotStart = cap ? (cum % cap) + 1 : cum + 1;
+        e.spotEnd = e.spotStart + e.qty - 1;
+        cum += e.qty;
+      }
+      const rounds = [];
+      for (const e of live) {
+        let r = rounds[e.round - 1];
+        if (!r) { r = rounds[e.round - 1] = { n: e.round, spots: 0, doneSpots: 0, entries: 0, doneEntries: 0 }; }
+        r.spots += e.qty; r.entries++;
+        if (e.done) { r.doneSpots += e.qty; r.doneEntries++; }
+      }
+      const doneSpots = live.filter((e) => e.done).reduce((n, e) => n + e.qty, 0);
+      const cur = rounds.length ? rounds[rounds.length - 1] : null;
       return {
         ...b, entries,
         spots: live.reduce((n, e) => n + e.qty, 0),
+        doneSpots,
+        activeSpots: live.reduce((n, e) => n + e.qty, 0) - doneSpots,
         value: Math.round(live.reduce((n, e) => n + e.value, 0) * 100) / 100,
         buyers: new Set(live.map((e) => e.buyerId)).size,
+        rounds: rounds.filter(Boolean),
+        currentRound: cur ? cur.n : 1,
+        // Spots taken in the round currently filling (a full round means the
+        // next order starts the next round).
+        currentRoundSpots: cur ? cur.spots : 0,
       };
     });
   }
@@ -1151,6 +1179,50 @@ export class QueueEngine extends EventEmitter {
     this._persist();
     this.emit('change', { reason: 'break-rename', id: b.id });
     return b;
+  }
+
+  /** Mark break entries (one per order) fulfilled — or undo with done=false.
+   *  Each order's spots in this break are fulfilled together. */
+  setBreakEntriesDone(id, orderIds, done = true) {
+    const b = this.breaks.find((x) => x.id === String(id));
+    if (!b) return null;
+    const now = Date.now();
+    let n = 0;
+    for (const oid of (Array.isArray(orderIds) ? orderIds : [orderIds])) {
+      const o = this.orders.get(String(oid));
+      if (!o || !(o.breakItems || []).some((it) => it.breakId === b.id)) continue;
+      o.breakDone = o.breakDone || {};
+      if (done) { if (!o.breakDone[b.id]) { o.breakDone[b.id] = now; n++; } }
+      else if (o.breakDone[b.id]) { delete o.breakDone[b.id]; n++; }
+    }
+    if (n) {
+      this._persist();
+      this.emit('change', { reason: done ? 'break-done' : 'break-undone', id: b.id, count: n });
+    }
+    return { count: n };
+  }
+
+  /** True when every break this order is in has marked it fulfilled. */
+  _breakAllDone(o) {
+    const ids = [...new Set((o.breakItems || []).map((it) => it.breakId))];
+    return ids.length > 0 && ids.every((bid) => o.breakDone && o.breakDone[bid]);
+  }
+
+  /** Merge one break into another (e.g. a break was closed by mistake and new
+   *  orders opened a "#2"). Entries keep their order-received position. */
+  mergeBreak(fromId, intoId) {
+    const from = this.breaks.find((x) => x.id === String(fromId));
+    const into = this.breaks.find((x) => x.id === String(intoId));
+    if (!from || !into || from === into) return null;
+    let moved = 0;
+    for (const o of this.orders.values()) {
+      for (const it of (o.breakItems || [])) if (it.breakId === from.id) { it.breakId = into.id; moved++; }
+      if (o.breakDone && o.breakDone[from.id]) { o.breakDone[into.id] = o.breakDone[into.id] || o.breakDone[from.id]; delete o.breakDone[from.id]; }
+    }
+    this.breaks = this.breaks.filter((x) => x.id !== from.id);
+    this._persist();
+    this.emit('change', { reason: 'break-merge', from: from.id, into: into.id, moved });
+    return { moved };
   }
 
   /** Set (or clear, with blank/0) how many spots a break has. */

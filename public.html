@@ -48,15 +48,29 @@
   .vchip{display:flex;align-items:baseline;gap:7px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 12px}
   .vchip .vl{font-size:13px;color:var(--muted);white-space:nowrap}
   .vchip .vn{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--pri)}
-  /* Open breaks (spots are ripped separately from the line below). */
-  .brks{margin:0 0 14px}
-  .brkcard{background:var(--panel);border:1px solid #6d55b8;border-radius:12px;padding:12px 14px;margin-bottom:10px}
-  .brkcard .bt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-  .brkcard .bt b{font-size:15px}
-  .brkcard .bt span{color:var(--muted);font-size:12.5px}
-  .brkcard .bchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-  .brkcard .bc{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-size:12.5px}
-  .brkcard .bc.me{border-color:#c9b8ff;color:#e2d8ff;font-weight:700}
+  /* Open breaks — compact card, progress bar, collapsible numbered list. */
+  .brks{margin:0 0 6px}
+  .brkcard{background:var(--panel);border:1px solid #4b3a7a;border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .brkcard .bt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .brkcard .bt b{font-size:14.5px;line-height:1.25}
+  .brkcard .rp{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:#3b2d6b;color:#d9ccff;border-radius:20px;padding:2px 8px;white-space:nowrap}
+  .brkcard .bar{height:7px;border-radius:6px;background:var(--panel2);overflow:hidden;margin:10px 0 6px}
+  .brkcard .bar i{display:block;height:100%;background:linear-gradient(90deg,#7c63d6,#c9b8ff);border-radius:6px}
+  .brkcard .bs{display:flex;justify-content:space-between;color:var(--muted);font-size:12.5px}
+  .brkcard .bs b{color:var(--text)}
+  .brkcard .bmine{margin-top:8px;font-size:12.5px;color:#e2d8ff;background:rgba(124,99,214,.16);border:1px solid #7c63d6;border-radius:8px;padding:6px 10px}
+  .brkcard details{margin-top:8px}
+  .brkcard summary{cursor:pointer;color:#c9b8ff;font-size:12.5px;font-weight:700;list-style:none;user-select:none}
+  .brkcard summary::-webkit-details-marker{display:none}
+  .brkcard summary::before{content:'▸ ';color:var(--muted)}
+  .brkcard details[open] summary::before{content:'▾ '}
+  .brkcard .brd{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin:10px 0 4px}
+  .brkcard ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:2px 14px}
+  .brkcard li{display:flex;gap:7px;align-items:baseline;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line);min-width:0}
+  .brkcard li .sn{color:var(--muted);font-variant-numeric:tabular-nums;min-width:30px;text-align:right;font-size:11.5px}
+  .brkcard li .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .brkcard li.me{color:#e2d8ff;font-weight:700}
+  .brkcard li.me .sn{color:#c9b8ff}
   .qhead{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:16px 4px 8px}
 </style>
 </head>
@@ -105,17 +119,40 @@
     }</div></div>`;
   }
 
+  const openBreaks = new Set(); // which "See who's in" lists the viewer opened
+  function brkToggle(id, open){ if(open) openBreaks.add(id); else openBreaks.delete(id); }
   function renderBreaks(me){
     const box = document.getElementById('breaks');
     const bs = (state.live !== false) ? (state.breaks || []) : [];
     if(!bs.length){ box.innerHTML = ''; return; }
-    box.innerHTML = bs.map(b=>`<div class="brkcard">
-        <div class="bt"><b>🎟 ${esc(b.title)}</b><span>${b.capacity?`${Math.min(b.spots,b.capacity)} / ${b.capacity} spots taken`:`${b.spots} spot${b.spots===1?'':'s'} taken`}</span></div>
-        <div class="bchips">${(b.entries||[]).map(e=>{
-          const mine = me && String(e.buyer||'').toLowerCase().includes(me);
-          return `<span class="bc${mine?' me':''}">${esc(e.buyer)}${e.qty>1?' ×'+e.qty:''}</span>`;
-        }).join('') || '<span class="bc">No spots yet</span>'}</div>
-      </div>`).join('') + '<div class="qhead">Live queue</div>';
+    box.innerHTML = bs.map(b=>{
+      const title = String(b.title||'Break').replace(/\s*\(\d+\s*-?\s*spots?\)\s*/i,' ').trim();
+      const es = b.entries || [];
+      const cap = b.capacity || 0;
+      const taken = Number(b.spots)||0;
+      const pct = cap ? Math.min(100, Math.round(taken / cap * 100)) : 0;
+      const isMe = (e)=> me && String(e.buyer||'').toLowerCase().includes(me);
+      const rng = (e)=> '#'+(e.spot||'?')+((e.qty>1 && e.spot)?'–'+(e.spot+e.qty-1):'');
+      const mine = es.filter(isMe);
+      const mineSpots = mine.reduce((n,e)=>n+(e.qty||1),0);
+      // Group the waiting spots by round (only when the break has a set size).
+      const groups = new Map();
+      for(const e of es){ const r = cap ? (e.round||1) : 0; if(!groups.has(r)) groups.set(r, []); groups.get(r).push(e); }
+      const list = [...groups.entries()].map(([r, g])=>
+        (cap && groups.size>1 ? `<div class="brd">Round ${r}</div>` : '')
+        + `<ol>${g.map(e=>`<li class="${isMe(e)?'me':''}"><span class="sn">${rng(e)}</span><span class="nm">${esc(e.buyer)}</span></li>`).join('')}</ol>`
+      ).join('');
+      const waiting = es.reduce((n,e)=>n+(e.qty||1),0);
+      const open = openBreaks.has(b.id) || mine.length > 0;
+      return `<div class="brkcard">
+        <div class="bt"><b>🎟 ${esc(title)}</b>${cap && b.round ? `<span class="rp">Round ${b.round}</span>` : ''}</div>
+        ${cap ? `<div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="bs"><span><b>${taken} / ${cap}</b> spots taken</span><span>${taken>=cap?'Full — next spot starts a new round':(cap-taken)+' left this round'}</span></div>`
+        : `<div class="bs" style="margin-top:6px"><span><b>${waiting}</b> spot${waiting===1?'':'s'} waiting to be ripped</span></div>`}
+        ${mine.length ? `<div class="bmine">You have ${mineSpots} spot${mineSpots===1?'':'s'}: ${mine.map(e=>(cap&&e.round?'R'+e.round+' ':'')+rng(e)).join(', ')}</div>` : ''}
+        ${es.length ? `<details ${open?'open':''} ontoggle="brkToggle('${b.id}', this.open)"><summary>See who's in · ${waiting} spot${waiting===1?'':'s'} waiting</summary>${list}</details>` : ''}
+      </div>`;
+    }).join('') + '<div class="qhead">Live queue</div>';
   }
 
   function render(){
