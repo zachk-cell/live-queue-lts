@@ -724,20 +724,20 @@
       subLine: shortTitle + ' · ' + e.qty + ' spot' + (e.qty===1?'':'s'),
     };
   }
-  function printBreakLabel(breakId, orderId){
+  function printBreakLabel(breakId, segKey){
     const b = (state.breaks||[]).find(x=>x.id===breakId); if(!b) return;
-    const e = _breakNumbered(b).find(x=>String(x.orderId)===String(orderId)); if(!e) return;
+    const e = _breakNumbered(b).find(x=>String(x.segKey)===String(segKey)); if(!e) return;
     _printLabels([_breakLabelEntry(b, e)]);
   }
   function printBreakLabels(breakId, onlySelected){
     const b = (state.breaks||[]).find(x=>x.id===breakId); if(!b) return;
     let list = _breakNumbered(b).filter(e=>!e.cancelled && !e.done);
-    if(onlySelected) list = list.filter(e=>selBreak.has(b.id+'|'+e.orderId));
+    if(onlySelected) list = list.filter(e=>selBreak.has(b.id+'|'+e.segKey));
     _printLabels(list.map(e=>_breakLabelEntry(b, e)));
-    if(onlySelected){ list.forEach(e=>selBreak.delete(b.id+'|'+e.orderId)); breaksSig=''; renderBreaks(); }
+    if(onlySelected){ list.forEach(e=>selBreak.delete(b.id+'|'+e.segKey)); breaksSig=''; renderBreaks(); }
   }
-  function toggleBreakSel(breakId, orderId){
-    const k = breakId+'|'+orderId;
+  function toggleBreakSel(breakId, segKey){
+    const k = breakId+'|'+segKey;
     if(selBreak.has(k)) selBreak.delete(k); else selBreak.add(k);
     breaksSig=''; renderBreaks();
   }
@@ -1329,22 +1329,24 @@
     else if(e.sameOrder && e.queuePartFulfilled) qb = `<span class="badge bdone" title="This order also had regular items; that part was already fulfilled from the queue.">📦 queue part fulfilled</span>`;
     else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
     const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
-    const sk = b.id+'|'+e.orderId;
+    const sk = b.id+'|'+e.segKey;
     const oid = esc(e.orderId);
+    const seg = esc(e.segKey);
     const live = !e.cancelled && !e.done;
+    const partB = (e.parts>1) ? `<span class="badge bother" title="This order's ${e.orderQty} spots run past the end of a round, so it is split: each round holds exactly ${b.capacity} spots.">part ${e.part}/${e.parts} · ${e.part<e.parts?'rest in R'+(e.round+1):'from R'+(e.round-1)}</span>` : '';
     return `<div class="brk-row${e.cancelled?' cx':''}${e.done?' bdoner':''}${selBreak.has(sk)?' bsel':''}">`
-      + (live ? `<input type="checkbox" class="bchk" ${selBreak.has(sk)?'checked':''} title="Select — then fulfil or print the selected spots together" onchange="toggleBreakSel('${b.id}','${oid}')">` : '<span class="bchk"></span>')
+      + (live ? `<input type="checkbox" class="bchk" ${selBreak.has(sk)?'checked':''} title="Select — then fulfil or print the selected spots together" onchange="toggleBreakSel('${b.id}','${seg}')">` : '<span class="bchk"></span>')
       + `<span class="bnum" title="Spot number${b.capacity?' within this round':''} — breaks are ripped in the order received">${e._spot||'–'}</span>`
       + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
       + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
       + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
-      + qb + cx
+      + partB + qb + cx
       + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
       + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
-      + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${oid}')">🏷</button>` : '')
+      + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${seg}')">🏷</button>` : '')
       + (e.done
-          ? `<button class="undob" title="Undo — put this spot back to be ripped" onclick="setBreakDone('${b.id}',['${oid}'],false)">↩ Undo</button>`
-          : (live ? `<button class="undob bful" title="Mark this spot fulfilled" onclick="setBreakDone('${b.id}',['${oid}'],true)">✓</button>` : ''))
+          ? `<button class="undob" title="Undo — put this spot back to be ripped" onclick="setBreakDone('${b.id}',['${seg}'],false)">↩ Undo</button>`
+          : (live ? `<button class="undob bful" title="Mark this spot fulfilled" onclick="setBreakDone('${b.id}',['${seg}'],true)">✓</button>` : ''))
       + (isOpen && live ? `<button class="undob" title="Wrong match — send this entry to the live queue instead" onclick="breakEntryToQueue('${b.id}','${oid}')">→ queue</button>` : '')
       + `</div>`;
   }
@@ -1373,7 +1375,7 @@
       const active = all.filter(e=>!e.cancelled && !e.done);
       const done = all.filter(e=>e.done && !e.cancelled);
       const cancelled = all.filter(e=>e.cancelled);
-      const nSel = active.filter(e=>selBreak.has(b.id+'|'+e.orderId)).length;
+      const nSel = active.filter(e=>selBreak.has(b.id+'|'+e.segKey)).length;
       // Active spots, grouped into back-to-back rounds when a total is set.
       let rows = '';
       if(b.capacity){
@@ -1388,7 +1390,7 @@
             + (full ? '<span class="badge bdone">FULL</span>' : (r===b.currentRound ? '<span class="badge bother">FILLING</span>' : ''))
             + `<span class="brk-racts">`
             + `<button class="undob" onclick="printBreakRound('${b.id}',${r})" title="Print labels for every spot left in round ${r}">🏷 Round labels</button>`
-            + `<button class="undob bful" onclick="fulfilBreakRound('${b.id}',${r})" title="Mark every spot left in round ${r} fulfilled">✓ Round ${r} done (${es.length})</button>`
+            + `<button class="undob bful" onclick="fulfilBreakRound('${b.id}',${r})" title="Mark every spot left in round ${r} fulfilled">✓ Round ${r} done (${es.reduce((n,e)=>n+e.qty,0)} spots)</button>`
             + `</span></div>`
             + (shown.map(e=>_brkRow(b,e,isOpen)).join('') || '<div class="brk-empty">No spots in this round match the search.</div>');
         }
@@ -1401,7 +1403,7 @@
       if(done.length){
         const sd = showDoneBreaks.has(b.id);
         const dSpots = done.reduce((n,e)=>n+e.qty,0);
-        rows += `<div class="brk-donehead" onclick="toggleDoneBreak('${b.id}')"><span class="cav">${sd?'▾':'▸'}</span>✓ Fulfilled — ${dSpots} spot${dSpots===1?'':'s'} (${done.length} order${done.length===1?'':'s'})</div>`
+        rows += `<div class="brk-donehead" onclick="toggleDoneBreak('${b.id}')"><span class="cav">${sd?'▾':'▸'}</span>✓ Fulfilled — ${dSpots} spot${dSpots===1?'':'s'}</div>`
           + (sd ? done.filter(matches).map(e=>_brkRow(b,e,isOpen)).join('') : '');
       }
       const selActs = nSel
@@ -1427,22 +1429,22 @@
   }
   const showDoneBreaks = new Set();
   function toggleDoneBreak(id){ if(showDoneBreaks.has(id)) showDoneBreaks.delete(id); else showDoneBreaks.add(id); renderBreaks(); }
-  function setBreakDone(id, orderIds, done){
-    orderIds.forEach(o=>selBreak.delete(id+'|'+o));
-    postJSON('/api/breaks/'+encodeURIComponent(id)+'/done',{orderIds, done});
+  function setBreakDone(id, keys, done){
+    keys.forEach(k=>selBreak.delete(id+'|'+k));
+    postJSON('/api/breaks/'+encodeURIComponent(id)+'/done',{orderIds: keys, done});
   }
   function fulfilBreakSelected(id){
     const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
-    const ids = (b.entries||[]).filter(e=>!e.cancelled && !e.done && selBreak.has(id+'|'+e.orderId)).map(e=>String(e.orderId));
-    if(ids.length) setBreakDone(id, ids, true);
+    const keys = (b.entries||[]).filter(e=>!e.cancelled && !e.done && selBreak.has(id+'|'+e.segKey)).map(e=>String(e.segKey));
+    if(keys.length) setBreakDone(id, keys, true);
   }
   async function fulfilBreakRound(id, r){
     const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
     const es = (b.entries||[]).filter(e=>!e.cancelled && !e.done && e.round===r);
     if(!es.length) return;
     const spots = es.reduce((n,e)=>n+e.qty,0);
-    const ok = await uiConfirm({title:`Round ${r} done?`, body:`Marks all ${spots} remaining spot${spots===1?'':'s'} in round ${r} (${es.length} order${es.length===1?'':'s'}) as fulfilled. You can undo any of them from the Fulfilled list.`, confirmText:`✓ Round ${r} done`});
-    if(ok) setBreakDone(id, es.map(e=>String(e.orderId)), true);
+    const ok = await uiConfirm({title:`Round ${r} done?`, body:`Marks the ${spots} remaining spot${spots===1?'':'s'} in round ${r} as fulfilled. Spots past the end of the round stay in the next round. You can undo any of them from the Fulfilled list.`, confirmText:`✓ Round ${r} done`});
+    if(ok) setBreakDone(id, es.map(e=>String(e.segKey)), true);
   }
   function printBreakRound(id, r){
     const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;

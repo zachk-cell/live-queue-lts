@@ -281,8 +281,9 @@ export class QueueEngine extends EventEmitter {
 
   /** Detailed per-order records of everything fulfilled this session. */
   fulfilledRecords() {
+    const doneIds = this._doneBreakOrderIds();
     return [...this.orders.values()]
-      .filter((o) => o.status === 'fulfilled' || (o.status === 'break' && this._breakAllDone(o)))
+      .filter((o) => o.status === 'fulfilled' || (o.status === 'break' && doneIds.has(o.id)))
       .sort((a, b) => (b.fulfilledAt || 0) - (a.fulfilledAt || 0))
       .map((o) => ({
         orderId: o.id,
@@ -290,7 +291,8 @@ export class QueueEngine extends EventEmitter {
         buyer: o.buyer,
         items: this._allItems(o),
         total: this._fullTotal(o),
-        fulfilledAt: o.fulfilledAt || (o.breakDone ? Math.max(0, ...Object.values(o.breakDone)) : null),
+        fulfilledAt: o.fulfilledAt || Math.max(0, ...Object.values(o.breakDone || {}),
+          ...Object.values(o.breakDoneRounds || {}).flatMap((m) => Object.values(m))) || null,
       }));
   }
 
@@ -352,8 +354,9 @@ export class QueueEngine extends EventEmitter {
   /** Detailed per-order records of orders still queued (unfulfilled) this
    *  session — captured when a stream is archived so nothing is silently lost. */
   queuedRecords() {
+    const doneIds = this._doneBreakOrderIds();
     return [...this.orders.values()]
-      .filter((o) => o.status === 'queued' || (o.status === 'break' && !this._breakAllDone(o)))
+      .filter((o) => o.status === 'queued' || (o.status === 'break' && !doneIds.has(o.id)))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .map((o) => ({
         orderId: o.id,
@@ -1098,16 +1101,39 @@ export class QueueEngine extends EventEmitter {
       entries.sort((a, c) => (a.createdAt || 0) - (c.createdAt || 0));
       const live = entries.filter((e) => !e.cancelled);
       // Back-to-back rounds: with a spot total set, spots 1..cap are round 1,
-      // cap+1..2cap round 2, and so on, in the order received. Each entry gets
-      // its round and its spot numbers within that round.
+      // cap+1..2cap round 2, and so on, in the order received. A round holds
+      // EXACTLY cap spots — an order that runs past the end of a round is split,
+      // the overflow becoming the first spot(s) of the next round. Each piece is
+      // its own entry ("segment", key orderId:round) and is fulfilled separately.
       const cap = b.capacity > 0 ? b.capacity : null;
       let cum = 0;
-      for (const e of live) {
-        e.round = cap ? Math.floor(cum / cap) + 1 : 1;
-        e.spotStart = cap ? (cum % cap) + 1 : cum + 1;
-        e.spotEnd = e.spotStart + e.qty - 1;
-        cum += e.qty;
+      const segs = [];
+      for (const e of entries) {
+        if (e.cancelled) { segs.push({ ...e, segKey: `${e.orderId}:x`, round: null, spotStart: null, spotEnd: null, part: 1, parts: 1, orderQty: e.qty, done: null }); continue; }
+        const o = this.orders.get(String(e.orderId));
+        const legacy = (o && o.breakDone && o.breakDone[b.id]) || null; // whole-order done
+        const doneMap = (o && o.breakDoneRounds && o.breakDoneRounds[b.id]) || {};
+        const pieces = [];
+        let left = e.qty;
+        while (left > 0) {
+          const round = cap ? Math.floor(cum / cap) + 1 : 1;
+          const start = cap ? (cum % cap) + 1 : cum + 1;
+          const take = cap ? Math.min(left, cap - (cum % cap)) : left;
+          pieces.push({ round, start, take });
+          cum += take; left -= take;
+        }
+        pieces.forEach((p, i) => segs.push({
+          ...e,
+          qty: p.take,
+          value: e.qty ? Math.round(e.value * p.take / e.qty * 100) / 100 : 0,
+          segKey: `${e.orderId}:${p.round}`,
+          round: p.round, spotStart: p.start, spotEnd: p.start + p.take - 1,
+          part: i + 1, parts: pieces.length, orderQty: e.qty,
+          done: legacy || doneMap[p.round] || null,
+        }));
       }
+      entries.length = 0; entries.push(...segs);
+      live.length = 0; live.push(...segs.filter((e) => !e.cancelled));
       const rounds = [];
       for (const e of live) {
         let r = rounds[e.round - 1];
@@ -1183,17 +1209,36 @@ export class QueueEngine extends EventEmitter {
 
   /** Mark break entries (one per order) fulfilled — or undo with done=false.
    *  Each order's spots in this break are fulfilled together. */
-  setBreakEntriesDone(id, orderIds, done = true) {
+  setBreakEntriesDone(id, keys, done = true) {
     const b = this.breaks.find((x) => x.id === String(id));
     if (!b) return null;
     const now = Date.now();
     let n = 0;
-    for (const oid of (Array.isArray(orderIds) ? orderIds : [orderIds])) {
-      const o = this.orders.get(String(oid));
+    // Each key is "orderId:round" (one round's piece of an order) or a bare
+    // orderId (all of that order's spots in this break).
+    const summary = this.breakSummaries().find((x) => x.id === b.id);
+    const roundsOf = (oid) => (summary ? summary.entries : [])
+      .filter((e) => String(e.orderId) === oid && !e.cancelled).map((e) => e.round);
+    for (const key of (Array.isArray(keys) ? keys : [keys])) {
+      const [oid, r] = String(key).split(':');
+      const o = this.orders.get(oid);
       if (!o || !(o.breakItems || []).some((it) => it.breakId === b.id)) continue;
       o.breakDone = o.breakDone || {};
-      if (done) { if (!o.breakDone[b.id]) { o.breakDone[b.id] = now; n++; } }
-      else if (o.breakDone[b.id]) { delete o.breakDone[b.id]; n++; }
+      o.breakDoneRounds = o.breakDoneRounds || {};
+      const m = o.breakDoneRounds[b.id] = o.breakDoneRounds[b.id] || {};
+      if (!r) {
+        if (done) { for (const rr of roundsOf(oid)) if (!m[rr] && !o.breakDone[b.id]) { m[rr] = now; n++; } }
+        else { if (o.breakDone[b.id]) { delete o.breakDone[b.id]; n++; } for (const rr of Object.keys(m)) { delete m[rr]; n++; } }
+        continue;
+      }
+      const round = Number(r);
+      if (o.breakDone[b.id]) {
+        // Legacy whole-order flag: expand it into per-round flags first.
+        for (const rr of roundsOf(oid)) m[rr] = m[rr] || o.breakDone[b.id];
+        delete o.breakDone[b.id];
+      }
+      if (done) { if (!m[round]) { m[round] = now; n++; } }
+      else if (m[round]) { delete m[round]; n++; }
     }
     if (n) {
       this._persist();
@@ -1202,10 +1247,17 @@ export class QueueEngine extends EventEmitter {
     return { count: n };
   }
 
-  /** True when every break this order is in has marked it fulfilled. */
-  _breakAllDone(o) {
-    const ids = [...new Set((o.breakItems || []).map((it) => it.breakId))];
-    return ids.length > 0 && ids.every((bid) => o.breakDone && o.breakDone[bid]);
+  /** Order ids whose every break spot (all rounds, all breaks) is fulfilled. */
+  _doneBreakOrderIds() {
+    const pending = new Set(); const seen = new Set();
+    for (const b of this.breakSummaries()) {
+      for (const e of b.entries) {
+        if (e.cancelled) continue;
+        seen.add(String(e.orderId));
+        if (!e.done) pending.add(String(e.orderId));
+      }
+    }
+    return new Set([...seen].filter((id) => !pending.has(id)));
   }
 
   /** Merge one break into another (e.g. a break was closed by mistake and new
@@ -1218,6 +1270,8 @@ export class QueueEngine extends EventEmitter {
     for (const o of this.orders.values()) {
       for (const it of (o.breakItems || [])) if (it.breakId === from.id) { it.breakId = into.id; moved++; }
       if (o.breakDone && o.breakDone[from.id]) { o.breakDone[into.id] = o.breakDone[into.id] || o.breakDone[from.id]; delete o.breakDone[from.id]; }
+      // Round numbers differ between breaks, so per-round flags can't carry over.
+      if (o.breakDoneRounds && o.breakDoneRounds[from.id]) delete o.breakDoneRounds[from.id];
     }
     this.breaks = this.breaks.filter((x) => x.id !== from.id);
     this._persist();
