@@ -56,6 +56,16 @@ export class QueueEngine extends EventEmitter {
     this.streamEndAt = null;   // ms epoch the stream went offline — freezes the running timer
     this.clips = [];           // [{ id, at (ms epoch), note }]
     this.clipCounter = 0;
+    // BREAKS (event-style, like iPoke quacks): items that belong to a break are
+    // pulled OUT of the running queue into their own break list, so a 40-spot
+    // break doesn't clog the live queue. Any non-break items in the same order
+    // still go to the queue as normal, and both sides are flagged.
+    //   breaks: [{ id, title, match, status:'open'|'ripped', auto, createdAt, rippedAt }]
+    this.breaks = [];
+    this.breakCounter = 0;
+    this.breakKeywords = ['break']; // item text containing one of these auto-opens a break
+    this.autoBreaks = true;         // auto-create a break per break product
+    this.breakIgnore = [];          // product phrases that must NEVER be treated as a break
     this._ensureDataDir();
     this._load();
     this._seedFromEnv();
@@ -80,6 +90,11 @@ export class QueueEngine extends EventEmitter {
         this.streamEndAt = cfg.streamEndAt || null;
         this.clips = Array.isArray(cfg.clips) ? cfg.clips : [];
         this.clipCounter = cfg.clipCounter || 0;
+        this.breaks = Array.isArray(cfg.breaks) ? cfg.breaks : [];
+        this.breakCounter = cfg.breakCounter || 0;
+        if (Array.isArray(cfg.breakKeywords)) this.breakKeywords = cfg.breakKeywords.map((x) => String(x).toLowerCase()).filter(Boolean);
+        if (cfg.autoBreaks === false) this.autoBreaks = false;
+        this.breakIgnore = Array.isArray(cfg.breakIgnore) ? cfg.breakIgnore : [];
       }
     } catch (e) {
       console.warn('[queue] could not load config:', e.message);
@@ -244,6 +259,11 @@ export class QueueEngine extends EventEmitter {
           streamEndAt: this.streamEndAt,
           clips: this.clips,
           clipCounter: this.clipCounter,
+          breaks: this.breaks,
+          breakCounter: this.breakCounter,
+          breakKeywords: this.breakKeywords,
+          autoBreaks: this.autoBreaks,
+          breakIgnore: this.breakIgnore,
         })
       );
     } catch (e) {
@@ -268,23 +288,32 @@ export class QueueEngine extends EventEmitter {
         orderId: o.id,
         buyerId: o.buyerId,
         buyer: o.buyer,
-        items: o.items,
-        total: o.total,
+        items: this._allItems(o),
+        total: this._fullTotal(o),
         fulfilledAt: o.fulfilledAt,
       }));
   }
 
+  /** Every line of an order (queue items + any items that went to a break) —
+   *  used for exports/history so nothing that went to a break is lost. */
+  _allItems(o) {
+    return [...(o.items || []), ...(o.breakItems || []).map((it) => ({ ...it, break: this._breakTitle(it.breakId) }))];
+  }
+  _fullTotal(o) { return o.fullTotal != null ? o.fullTotal : o.total; }
+
   /** Order ids of everything still queued — used by the poller to batch-refresh
    *  On Hold status. */
   queuedOrderIds() {
-    return [...this.orders.values()].filter((o) => o.status === 'queued').map((o) => o.id);
+    // Break-only orders are still live, unshipped orders — keep them in the
+    // hold/cancel re-check too.
+    return [...this.orders.values()].filter((o) => o.status === 'queued' || o.status === 'break').map((o) => o.id);
   }
 
   /** Flag/unflag a queued order as On Hold (TikTok-side). Returns true if it
    *  actually changed, so the poller can log only real transitions. */
   setHold(orderId, onHold) {
     const o = this.orders.get(String(orderId));
-    if (!o || o.status !== 'queued') return false;
+    if (!o || (o.status !== 'queued' && o.status !== 'break')) return false;
     if (!!o.onHold === !!onHold) return false;
     o.onHold = !!onHold;
     this._persist();
@@ -300,7 +329,7 @@ export class QueueEngine extends EventEmitter {
    *  info = { cancelRequested:boolean, items:[{name, cancelled}] }. */
   setCancelInfo(orderId, info) {
     const o = this.orders.get(String(orderId));
-    if (!o || o.status !== 'queued') return false;
+    if (!o || (o.status !== 'queued' && o.status !== 'break')) return false;
     let changed = false;
     const nextReq = !!(info && info.cancelRequested);
     if (!!o.cancelRequested !== nextReq) { o.cancelRequested = nextReq; changed = true; }
@@ -308,7 +337,7 @@ export class QueueEngine extends EventEmitter {
     // in the variant, so it uniquely identifies the line to the packer).
     if (info && Array.isArray(info.items) && info.items.length) {
       const cancelledNames = new Set(info.items.filter((it) => it.cancelled).map((it) => it.name));
-      for (const it of (o.items || [])) {
+      for (const it of [...(o.items || []), ...(o.breakItems || [])]) {
         const nc = cancelledNames.has(it.name);
         if (!!it.cancelled !== nc) { it.cancelled = nc; changed = true; }
       }
@@ -324,14 +353,14 @@ export class QueueEngine extends EventEmitter {
    *  session — captured when a stream is archived so nothing is silently lost. */
   queuedRecords() {
     return [...this.orders.values()]
-      .filter((o) => o.status === 'queued')
+      .filter((o) => o.status === 'queued' || o.status === 'break')
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .map((o) => ({
         orderId: o.id,
         buyerId: o.buyerId,
         buyer: o.buyer,
-        items: o.items,
-        total: o.total,
+        items: this._allItems(o),
+        total: this._fullTotal(o),
         createdAt: o.createdAt,
       }));
   }
@@ -345,8 +374,8 @@ export class QueueEngine extends EventEmitter {
         orderId: o.id,
         buyerId: o.buyerId,
         buyer: o.buyer,
-        items: o.items,
-        total: o.total,
+        items: this._allItems(o),
+        total: this._fullTotal(o),
         cancelledAt: o.cancelledAt,
       }));
   }
@@ -369,7 +398,33 @@ export class QueueEngine extends EventEmitter {
     if (!this.live) return null;
 
     const buyerId = String(raw.buyerId);
-    const items = raw.items || [];
+    const createdAt0 = raw.createdAt || Date.now();
+    // Split the order: break items go to their break, everything else queues.
+    const items = [];
+    const breakItems = [];
+    for (const it of (raw.items || [])) {
+      const br = this._breakFor(it, true);
+      if (br) breakItems.push({ ...it, breakId: br.id });
+      else items.push(it);
+    }
+    if (breakItems.length && !items.length) {
+      // Break-only order: never enters the running queue.
+      const order = {
+        id, buyerId,
+        buyer: raw.buyer || 'Buyer',
+        buyerHandle: raw.buyerHandle || '',
+        items: [], breakItems,
+        total: Number(raw.total || 0), fullTotal: Number(raw.total || 0),
+        createdAt: createdAt0, receivedAt: Date.now(),
+        status: 'break', batchKey: `brk:${id}`, breakOnly: true,
+        hasPriority: false,
+        onHold: !!raw.onHold, cancelRequested: !!raw.cancelRequested,
+      };
+      this.orders.set(id, order);
+      this._persist();
+      this.emit('change', { reason: 'break-entry', order });
+      return order;
+    }
     const hasPriority = this._isPriorityOrder(items);
 
     // Find (or open) the buyer's active slot.
@@ -399,8 +454,10 @@ export class QueueEngine extends EventEmitter {
       buyer: raw.buyer || 'Buyer',
       buyerHandle: raw.buyerHandle || '',
       items,
-      total: Number(raw.total || 0),
-      createdAt: raw.createdAt || Date.now(),
+      breakItems,
+      total: breakItems.length ? this._splitTotal(raw, items) : Number(raw.total || 0),
+      fullTotal: Number(raw.total || 0),
+      createdAt: createdAt0,
       receivedAt: Date.now(),
       status: 'queued',
       batchKey,
@@ -454,8 +511,19 @@ export class QueueEngine extends EventEmitter {
     const items = [...itemMap.entries()].map(([name, v]) => ({ name, qty: v.qty, cancelled: v.cancelled }));
 
     const reachedAts = orders.map((o) => o.reachedTopAt).filter(Boolean);
+    // Break items from these same orders (they went to a break, NOT this bag).
+    const bn = new Map();
+    for (const o of orders) {
+      for (const it of (o.breakItems || [])) {
+        const k = it.breakId + '|' + it.name;
+        const prev = bn.get(k) || { breakId: it.breakId, title: this._breakTitle(it.breakId), name: it.name, qty: 0, orderId: o.id };
+        prev.qty += (it.qty || 1);
+        bn.set(k, prev);
+      }
+    }
     return {
       key: batchKey,
+      breakNotes: [...bn.values()],
       buyerId: first.buyerId,
       buyer: first.buyer,
       // Admin-only cross-check: the buyer's unique @username (the queue label is
@@ -537,6 +605,13 @@ export class QueueEngine extends EventEmitter {
   reopen(batchKey) {
     const orders = [...this.orders.values()].filter((o) => o.batchKey === batchKey);
     if (!orders.length) return null;
+    if (orders.every((o) => o.breakOnly)) {
+      // A cancelled break entry being restored goes back into its break.
+      for (const o of orders) { o.status = 'break'; o.cancelledAt = null; }
+      this._persist();
+      this.emit('change', { reason: 'reopened', batchKey });
+      return { batchKey };
+    }
     const buyerId = orders[0].buyerId;
     // Only reopen if the buyer has no other open slot.
     if (this.openBatch.has(buyerId)) return null;
@@ -588,7 +663,7 @@ export class QueueEngine extends EventEmitter {
     const records = this.fulfilledRecords();
     const cancelledRecs = this.cancelledRecords();
     const unfulfilledRecs = this.queuedRecords();
-    if (records.length || cancelledRecs.length || unfulfilledRecs.length) {
+    if (records.length || cancelledRecs.length || unfulfilledRecs.length || this.breaks.length) {
       this.history.unshift({
         id: String(this.sessionStartedAt || Date.now()),
         startedAt: this.sessionStartedAt || null,
@@ -599,6 +674,10 @@ export class QueueEngine extends EventEmitter {
         fulfilled: records,
         cancelled: cancelledRecs,
         unfulfilled: unfulfilledRecs,
+        breaks: this.breakSummaries().map((b) => ({
+          id: b.id, title: b.title, status: b.status, spots: b.spots, value: b.value,
+          entries: b.entries.map((e) => ({ orderId: e.orderId, buyer: e.buyer, qty: e.qty, items: e.items, cancelled: e.cancelled })),
+        })),
       });
       this.history = this.history.slice(0, MAX_HISTORY);
       this._persistHistory();
@@ -611,6 +690,7 @@ export class QueueEngine extends EventEmitter {
     this._archiveCurrentStream(); // safety net if the previous stream wasn't ended
     this.orders.clear();
     this.openBatch.clear();
+    this.breaks = []; // breaks are per-stream, like the queue
     // Per-variant counters PERSIST across streams (cumulative running totals).
     // They are only ever changed by the auto-tally or a manual admin edit/reset.
     this.sessionStartedAt = Date.now();
@@ -631,6 +711,7 @@ export class QueueEngine extends EventEmitter {
     this._archiveCurrentStream();
     this.orders.clear();
     this.openBatch.clear();
+    this.breaks = [];
     this.live = false;
     // Freeze the clip timer at the moment the stream went offline. The start time
     // (and clips) are kept so the clip list stays copyable for the editor.
@@ -730,6 +811,8 @@ export class QueueEngine extends EventEmitter {
     return {
       activeCount: active.length,
       priorityCount: active.filter((e) => e.isPriority).length,
+      breakOpen: this.breaks.filter((b) => b.status === 'open').length,
+      breakSpots: this.breakSummaries().filter((b) => b.status === 'open').reduce((n, b) => n + b.spots, 0),
       fulfilledCount: done.length,
       activeValue: active.reduce((s, e) => s + e.total, 0),
       priorityItems: this.priorityItems,
@@ -747,7 +830,8 @@ export class QueueEngine extends EventEmitter {
       fulfilled: this.fulfilledSlots().slice(0, 50),
       cancelled: this.cancelledSlots().slice(0, 50),
       stats: this.stats(),
-      config: { priorityItems: this.priorityItems },
+      config: { priorityItems: this.priorityItems, breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
+      breaks: this.breakSummaries(),
       variants: this.trackedVariants.map((v) => ({
         id: v.id, label: v.label, product: v.product, variant: v.variant,
         count: this.variantCounts[v.id] || 0,
@@ -770,6 +854,7 @@ export class QueueEngine extends EventEmitter {
   reset() {
     this.orders.clear();
     this.openBatch.clear();
+    this.breaks = [];
     this._persist();
     this.emit('change', { reason: 'reset' });
   }
@@ -850,7 +935,7 @@ export class QueueEngine extends EventEmitter {
    *  buyer's slot untouched. */
   cancelOrder(orderId) {
     const o = this.orders.get(String(orderId));
-    if (!o || o.status !== 'queued') return null;
+    if (!o || (o.status !== 'queued' && o.status !== 'break')) return null;
     o.status = 'cancelled';
     o.cancelledAt = Date.now();
     o.bumped = false;
@@ -880,13 +965,231 @@ export class QueueEngine extends EventEmitter {
         buyer: first.buyer,
         buyerId: first.buyerId,
         orderIds: orders.map((o) => o.id),
-        itemCount: orders.reduce((n, o) => n + o.items.reduce((m, i) => m + (i.qty || 1), 0), 0),
-        total: orders.reduce((s, o) => s + o.total, 0),
+        itemCount: orders.reduce((n, o) => n + this._allItems(o).reduce((m, i) => m + (i.qty || 1), 0), 0),
+        total: orders.reduce((s, o) => s + this._fullTotal(o), 0),
         cancelledAt: Math.max(...orders.map((o) => o.cancelledAt || 0)),
+        isBreak: orders.every((o) => o.breakOnly),
       };
     });
     slots.sort((a, b) => b.cancelledAt - a.cancelledAt);
     return slots;
+  }
+
+  // ── Breaks ─────────────────────────────────────────────────────────────────
+  _breakTitle(id) {
+    const b = this.breaks.find((x) => x.id === id);
+    return b ? b.title : 'Break';
+  }
+
+  /** Product name without the " - <variant>" suffix TikTok folds in
+   *  ("Dragon Frontiers Galaxy Rips LT DADDY BREAK - Default" → product name). */
+  _productName(it) {
+    let n = String(it.name || '').trim();
+    const v = String(it.variant || '').trim();
+    if (v && n.toLowerCase().endsWith((' - ' + v).toLowerCase())) n = n.slice(0, n.length - v.length - 3).trim();
+    return n || 'Break';
+  }
+
+  /** Spot count written in the product name, e.g. "(33 Spot)" / "33 Spots". */
+  _capacityFrom(text) {
+    const m = String(text || '').match(/(\d{1,4})\s*-?\s*spots?\b/i);
+    const n = m ? Number(m[1]) : 0;
+    return n > 0 ? n : null;
+  }
+
+  /** Whole-word phrase match, so "break" never matches "BREAKpoint" or
+   *  "BREAKthrough" (real Pokémon set names). */
+  _hasWord(text, phrase) {
+    const p = String(phrase || '').toLowerCase().trim();
+    if (!p) return false;
+    const esc = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(text);
+  }
+
+  /** Which break (if any) an item belongs to. Open breaks win (longest match
+   *  first); otherwise, if the item has a break keyword, a new break is opened
+   *  for that product (when create + autoBreaks). */
+  _breakFor(it, create) {
+    const text = `${it.name || ''} ${it.sku || ''}`.toLowerCase();
+    if (this.breakIgnore.some((p) => p && text.includes(p))) return null;
+    const open = this.breaks.filter((b) => b.status === 'open' && b.match && text.includes(b.match));
+    if (open.length) return open.sort((a, b) => b.match.length - a.match.length)[0];
+    if (!create || !this.autoBreaks) return null;
+    if (!this.breakKeywords.some((k) => this._hasWord(text, k))) return null;
+    const product = this._productName(it);
+    const match = product.toLowerCase();
+    const prior = this.breaks.filter((b) => b.match === match).length;
+    const br = {
+      id: 'brk' + (++this.breakCounter),
+      title: prior ? `${product} #${prior + 1}` : product,
+      match, status: 'open', auto: true, createdAt: Date.now(), rippedAt: null,
+      capacity: this._capacityFrom(product),
+    };
+    this.breaks.push(br);
+    return br;
+  }
+
+  /** Queue share of an order's total when some of its items went to a break:
+   *  real per-item prices when captured, otherwise split by quantity. */
+  _splitTotal(raw, queueItems) {
+    const all = raw.items || [];
+    const total = Number(raw.total || 0);
+    const priced = all.length && all.every((i) => Number(i.price || 0) > 0);
+    if (priced) return Math.round(queueItems.reduce((s, i) => s + Number(i.price) * (i.qty || 1), 0) * 100) / 100;
+    const q = (arr) => arr.reduce((n, i) => n + (i.qty || 1), 0);
+    const allQ = q(all);
+    return allQ ? Math.round(total * (q(queueItems) / allQ) * 100) / 100 : total;
+  }
+
+  /** Breaks with their live entries, for the panel/public page/history. */
+  breakSummaries() {
+    const active = this.activeQueue();
+    const posByKey = new Map(active.map((e) => [e.key, e.position]));
+    return this.breaks.map((b) => {
+      const entries = [];
+      for (const o of this.orders.values()) {
+        const its = (o.breakItems || []).filter((it) => it.breakId === b.id);
+        if (!its.length) continue;
+        const qty = its.reduce((n, it) => n + (it.qty || 1), 0);
+        const value = its.reduce((n, it) => n + (Number(it.price) || 0) * (it.qty || 1), 0);
+        // Does this buyer ALSO have something in the running queue? sameOrder =
+        // the queue slot holds the rest of this very order.
+        let queuePos = null; let sameOrder = false;
+        if (o.status === 'queued') { queuePos = posByKey.get(o.batchKey) || null; sameOrder = true; }
+        else {
+          const k = this.openBatch.get(o.buyerId);
+          if (k) queuePos = posByKey.get(k) || null;
+        }
+        entries.push({
+          orderId: o.id, buyerId: o.buyerId, buyer: o.buyer, buyerHandle: o.buyerHandle || '',
+          qty, value,
+          items: its.map((it) => ({ name: it.name, qty: it.qty || 1, cancelled: !!it.cancelled })),
+          createdAt: o.createdAt, status: o.status,
+          cancelled: o.status === 'cancelled' || its.every((it) => it.cancelled),
+          cancelRequested: !!o.cancelRequested, onHold: !!o.onHold,
+          queuePos, sameOrder, queuePartFulfilled: o.status === 'fulfilled',
+          mixed: (o.items || []).length > 0,
+        });
+      }
+      entries.sort((a, c) => (a.createdAt || 0) - (c.createdAt || 0));
+      const live = entries.filter((e) => !e.cancelled);
+      return {
+        ...b, entries,
+        spots: live.reduce((n, e) => n + e.qty, 0),
+        value: Math.round(live.reduce((n, e) => n + e.value, 0) * 100) / 100,
+        buyers: new Set(live.map((e) => e.buyerId)).size,
+      };
+    });
+  }
+
+  /** Manually open a break. Anything already sitting in the queue that matches
+   *  is pulled out of the queue into the break. */
+  createBreak({ title, match } = {}) {
+    const t = String(title || match || '').trim();
+    const m = String(match || title || '').trim().toLowerCase();
+    if (!t || !m) return null;
+    this.breakIgnore = this.breakIgnore.filter((p) => p !== m);
+    const br = { id: 'brk' + (++this.breakCounter), title: t.slice(0, 120), match: m, status: 'open', auto: false, createdAt: Date.now(), rippedAt: null, capacity: this._capacityFrom(t) };
+    this.breaks.push(br);
+    let moved = 0;
+    for (const o of this.orders.values()) {
+      if (o.status !== 'queued') continue;
+      const keep = []; const take = [];
+      for (const it of (o.items || [])) {
+        const text = `${it.name || ''} ${it.sku || ''}`.toLowerCase();
+        (text.includes(m) ? take : keep).push(it);
+      }
+      if (!take.length) continue;
+      moved += take.length;
+      o.breakItems = [...(o.breakItems || []), ...take.map((it) => ({ ...it, breakId: br.id }))];
+      if (o.fullTotal == null) o.fullTotal = o.total;
+      o.items = keep;
+      o.total = keep.length ? this._splitTotal({ items: [...keep, ...o.breakItems], total: o.fullTotal }, keep) : o.fullTotal;
+      o.hasPriority = this._isPriorityOrder(keep);
+      if (!keep.length) {
+        const oldKey = o.batchKey;
+        o.status = 'break'; o.breakOnly = true; o.batchKey = `brk:${o.id}`; o.bumped = false;
+        const still = [...this.orders.values()].some((x) => x.batchKey === oldKey && x.status === 'queued');
+        if (!still && this.openBatch.get(o.buyerId) === oldKey) this.openBatch.delete(o.buyerId);
+      }
+    }
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'break-create', id: br.id, moved });
+    return br;
+  }
+
+  renameBreak(id, title) {
+    const b = this.breaks.find((x) => x.id === String(id));
+    const t = String(title || '').trim();
+    if (!b || !t) return null;
+    b.title = t.slice(0, 120);
+    this._persist();
+    this.emit('change', { reason: 'break-rename', id: b.id });
+    return b;
+  }
+
+  /** Mark a break ripped (done). New orders for the same product after this
+   *  open a fresh break (#2, #3 …). Reopen undoes it. */
+  setBreakRipped(id, ripped) {
+    const b = this.breaks.find((x) => x.id === String(id));
+    if (!b) return null;
+    b.status = ripped ? 'ripped' : 'open';
+    b.rippedAt = ripped ? Date.now() : null;
+    this._persist();
+    this.emit('change', { reason: ripped ? 'break-ripped' : 'break-reopen', id: b.id });
+    return b;
+  }
+
+  /** Move one order's items for a break back into the running queue. */
+  _unbreakOrder(o, breakId) {
+    const back = (o.breakItems || []).filter((it) => it.breakId === breakId);
+    if (!back.length) return false;
+    o.breakItems = (o.breakItems || []).filter((it) => it.breakId !== breakId);
+    o.items = [...(o.items || []), ...back.map(({ breakId: _b, ...it }) => it)];
+    o.hasPriority = this._isPriorityOrder(o.items);
+    o.total = o.breakItems.length ? this._splitTotal({ items: [...o.items, ...o.breakItems], total: this._fullTotal(o) }, o.items) : this._fullTotal(o);
+    if (o.status === 'break') {
+      let key = this.openBatch.get(o.buyerId);
+      if (!key) { key = `${o.buyerId}#${++this.batchCounter}`; this.openBatch.set(o.buyerId, key); }
+      o.batchKey = key; o.status = 'queued'; o.breakOnly = false;
+    }
+    return true;
+  }
+
+  /** Send a single entry's break items to the running queue (wrong match). */
+  moveBreakEntryToQueue(id, orderId) {
+    const o = this.orders.get(String(orderId));
+    if (!o || !this._unbreakOrder(o, String(id))) return null;
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'break-entry-to-queue', id: String(id), orderId: String(orderId) });
+    return o;
+  }
+
+  /** "Not a break": put every entry back into the running queue, delete the
+   *  break, and stop auto-detecting that product as a break. */
+  dissolveBreak(id) {
+    const b = this.breaks.find((x) => x.id === String(id));
+    if (!b) return null;
+    for (const o of this.orders.values()) {
+      if (o.status === 'queued' || o.status === 'break') this._unbreakOrder(o, b.id);
+    }
+    this.breaks = this.breaks.filter((x) => x.id !== b.id);
+    if (b.auto && b.match && !this.breakIgnore.includes(b.match)) this.breakIgnore.push(b.match);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'break-dissolve', id: b.id });
+    return { id: b.id };
+  }
+
+  setBreakConfig({ keywords, auto, ignore } = {}) {
+    if (Array.isArray(keywords)) this.breakKeywords = keywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean);
+    if (auto != null) this.autoBreaks = !!auto;
+    if (Array.isArray(ignore)) this.breakIgnore = ignore.map((k) => String(k).trim().toLowerCase()).filter(Boolean);
+    this._persist();
+    this.emit('change', { reason: 'break-config' });
+    return { breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore };
   }
 
   /** Inject a synthetic order for testing (e.g. label printing) regardless of

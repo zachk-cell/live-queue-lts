@@ -48,6 +48,16 @@
   .vchip{display:flex;align-items:baseline;gap:7px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 12px}
   .vchip .vl{font-size:13px;color:var(--muted);white-space:nowrap}
   .vchip .vn{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--pri)}
+  /* Open breaks (spots are ripped separately from the line below). */
+  .brks{margin:0 0 14px}
+  .brkcard{background:var(--panel);border:1px solid #6d55b8;border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .brkcard .bt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .brkcard .bt b{font-size:15px}
+  .brkcard .bt span{color:var(--muted);font-size:12.5px}
+  .brkcard .bchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .brkcard .bc{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-size:12.5px}
+  .brkcard .bc.me{border-color:#c9b8ff;color:#e2d8ff;font-weight:700}
+  .qhead{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:16px 4px 8px}
 </style>
 </head>
 <body>
@@ -58,6 +68,7 @@
 </header>
 <main>
   <input id="find" class="find" placeholder="Type your username to highlight your spot…" oninput="render()" />
+  <div id="breaks" class="brks"></div>
   <div id="list"></div>
   <div class="note">Order totals and personal details are private and never shown here.</div>
 </main>
@@ -94,8 +105,22 @@
     }</div></div>`;
   }
 
+  function renderBreaks(me){
+    const box = document.getElementById('breaks');
+    const bs = (state.live !== false) ? (state.breaks || []) : [];
+    if(!bs.length){ box.innerHTML = ''; return; }
+    box.innerHTML = bs.map(b=>`<div class="brkcard">
+        <div class="bt"><b>🎟 ${esc(b.title)}</b><span>${b.capacity?`${Math.min(b.spots,b.capacity)} / ${b.capacity} spots taken`:`${b.spots} spot${b.spots===1?'':'s'} taken`}</span></div>
+        <div class="bchips">${(b.entries||[]).map(e=>{
+          const mine = me && String(e.buyer||'').toLowerCase().includes(me);
+          return `<span class="bc${mine?' me':''}">${esc(e.buyer)}${e.qty>1?' ×'+e.qty:''}</span>`;
+        }).join('') || '<span class="bc">No spots yet</span>'}</div>
+      </div>`).join('') + '<div class="qhead">Live queue</div>';
+  }
+
   function render(){
     const q = state.queue || [];
+    renderBreaks((document.getElementById('find').value || '').toLowerCase());
     const st = state.stats || {};
     const live = state.live !== false; // treat missing as live for safety
     document.getElementById('dot').classList.toggle('live', live); // green = live, red = offline

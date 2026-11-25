@@ -42,6 +42,41 @@
   .sectitle.collapsed .cav{transform:rotate(-90deg)}
   .secount{color:var(--muted);font-weight:700;letter-spacing:0}
   .slot{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+  /* ── Breaks ── */
+  .brkwrap{background:var(--panel);border:1px solid #4b3a7a;border-radius:12px;padding:12px 14px;margin:14px 0 4px}
+  .brkhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .brkhead .brkh{font-weight:800;font-size:14px}
+  .brkhead .brkn{color:var(--muted);font-size:12.5px}
+  .brkhead .sp{flex:1}
+  .brk{border:1px solid var(--line);border-radius:10px;margin-top:10px;background:var(--panel2)}
+  .brk.open{border-color:#6d55b8}
+  .brk-top{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;flex-wrap:wrap}
+  .brk-top .cav{font-size:9px;color:var(--muted);transition:transform .12s}
+  .brk.collapsed .brk-top .cav{transform:rotate(-90deg)}
+  .brk.collapsed .brk-rows{display:none}
+  .brk-title{font-weight:700}
+  .brk-pill{font-size:10px;font-weight:800;letter-spacing:.5px;border-radius:20px;padding:2px 8px;background:#3b2d6b;color:#d9ccff}
+  .brk.ripped .brk-pill{background:#1d3b2a;color:#7fe0a8}
+  .brk-meta{color:var(--muted);font-size:12px}
+  .brk-acts{margin-left:auto;display:flex;gap:6px}
+  .brk-acts button{padding:5px 10px;font-size:12px}
+  .brk-acts .ripb{background:var(--done);border-color:var(--done);color:#04180d}
+  .brk-rows{border-top:1px solid var(--line)}
+  .brk-row{display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap}
+  .brk-row:last-child{border-bottom:none}
+  .brk-row .bq{font-weight:800;color:#c9b8ff;min-width:28px}
+  .brk-row .bname{font-weight:600}
+  .brk-row .bh{color:var(--muted);font-size:11.5px}
+  .brk-row .bvar{color:var(--muted);font-size:12px}
+  .brk-row .bt{color:var(--muted);font-size:11.5px;margin-left:auto;font-variant-numeric:tabular-nums}
+  .brk-row.cx .bname,.brk-row.cx .bvar{text-decoration:line-through;color:var(--muted)}
+  .brk-empty{color:var(--muted);font-size:12.5px;padding:10px 11px}
+  .badge.brk{background:#3b2d6b;color:#e2d8ff;border:1px solid #7c63d6}
+  .badge.bsame{background:#7c63d6;color:#fff;animation:pulse 1.6s ease-in-out infinite}
+  .badge.bother{background:#2a2f40;color:#cdd4e4;border:1px solid #4a5270}
+  .badge.bdone{background:#1d3b2a;color:#7fe0a8}
+  .details .dsub.dbrk{color:#c9b8ff}
+  .details .di.di-brk span:not(.diq){color:#c9b8ff}
   .slotmain{display:flex;align-items:center;gap:12px;padding:12px 14px}
   .slot.new{animation:pop .18s ease}
   .slot.priority{border-color:var(--pri);background:linear-gradient(90deg,var(--pri-bg),var(--panel))}
@@ -136,6 +171,9 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(520px,92vw)}
   .card h3{margin:0 0 6px}
   .card p{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .bm-l{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px}
+  .bm-in{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px 11px;font-size:13px}
+  #breakModal textarea{height:80px}
   .card textarea{width:100%;height:110px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
     border-radius:9px;padding:10px;font-size:13px;font-family:inherit;resize:vertical}
   .row{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
@@ -283,6 +321,7 @@
   <div class="stats">
     <div class="stat"><b id="s-active">0</b><span>In queue</span></div>
     <div class="stat"><b id="s-pri">0</b><span>Priority</span></div>
+    <div class="stat"><b id="s-brk">0</b><span>Break spots</span></div>
     <div class="stat"><b id="s-val">$0</b><span>Queue value</span></div>
     <div class="stat"><b id="s-done">0</b><span>Fulfilled</span></div>
     <div class="stat"><b id="s-avgq">—</b><span>Avg in queue</span></div>
@@ -325,6 +364,15 @@
   </div>
 
   <div id="tt-banner" class="offline-banner" style="display:none"></div>
+
+  <div id="breaks-admin" class="brkwrap">
+    <div class="brkhead">
+      <span class="brkh">🎟 Breaks</span><span class="brkn" id="brk-n"></span><span class="sp"></span>
+      <button class="ghost" onclick="openBreakModal('new')">＋ New break</button>
+      <button class="ghost" onclick="openBreakModal('config')" title="Which item words open a break automatically">⚙ Break settings</button>
+    </div>
+    <div id="brk-list"></div>
+  </div>
 
   <div class="sectitle" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span>Active queue — top is next</span>
@@ -382,6 +430,30 @@
     <div class="row">
       <button class="ghost" onclick="closePriority()">Cancel</button>
       <button class="primary" onclick="savePriority()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="breakModal">
+  <div class="card">
+    <h3 id="bm-title">New break</h3>
+    <p id="bm-desc"></p>
+    <div id="bm-new">
+      <label class="bm-l">Break name</label>
+      <input id="bm-name" class="bm-in" placeholder="e.g. Dragon Frontiers Galaxy Rips LT DADDY BREAK" />
+      <label class="bm-l">Item text to match (leave blank to use the name)</label>
+      <input id="bm-match" class="bm-in" placeholder="e.g. daddy break" />
+    </div>
+    <div id="bm-cfg">
+      <label class="prichk"><input type="checkbox" id="bm-auto"> Automatically open a break for any item whose name contains one of these words</label>
+      <label class="bm-l">Break words (one per line, whole words only)</label>
+      <textarea id="bm-words" placeholder="break"></textarea>
+      <label class="bm-l">Never treat these as breaks (one per line)</label>
+      <textarea id="bm-ignore" placeholder=""></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="ghost" onclick="closeBreakModal()">Cancel</button>
+      <button class="primary" onclick="saveBreakModal()">Save</button>
     </div>
   </div>
 </div>
@@ -747,6 +819,11 @@
     // just a soft heads-up to verify before shipping. Suppressed if a real cancel
     // is already flagged.
     const holdBadge = (!e.cancelRequested && e.onHold) ? `<span class="badge onhold" title="TikTok has this order ON HOLD — this is NOT necessarily a cancellation. Common reasons: address check, order combine/split, sample or exchange order, or a pending review. Verify before shipping.">⏸ ON HOLD — verify</span>` : '';
+    // This buyer's order ALSO bought into a break — those items went to the
+    // Breaks section, not this bag.
+    const bNotes = e.breakNotes || [];
+    const bQty = bNotes.reduce((n,b)=>n+(b.qty||0),0);
+    const brkBadge = bNotes.length ? `<span class="badge brk" title="Same order also has ${bQty} break spot(s) — ${esc(bNotes.map(b=>b.qty+'× '+b.title).join(', '))}. Those are in the Breaks section, NOT in this bag.">🎟 + BREAK ×${bQty}</span>` : '';
     const idTag = e._dupName ? `<span class="idtag" title="Buyer id (last 4) — tells same-named buyers apart">id …${esc(e._idTag)}</span>` : '';
     const ordNos = `<span class="ordno">${e.orderIds.map(id=>'#'+esc(shortId(id))).join(' ')}</span>`;
     // Expanded view: items grouped by order number, with anything the buyer added
@@ -761,12 +838,15 @@
     if(added.length){
       detailItems += `<div class="dsub">＋ Added since top of queue</div>` + added.map(groupHtml).join('');
     }
+    if(bNotes.length){
+      detailItems += `<div class="dsub dbrk">🎟 In a break — NOT in this bag</div>` + bNotes.map(b=>`<div class="di di-brk"><span class="diq">${b.qty}×</span><span>${esc(b.name)}</span></div>`).join('');
+    }
     const detailOrds = `<div class="dord">Full order number${e.orderIds.length>1?'s':''}: ${e.orderIds.map(id=>'#'+esc(id)).join('  ')}</div>`;
     return `<div class="slotmain">`
       + `<input type="checkbox" class="selchk" ${selectedKeys.has(e.key)?'checked':''} title="Select this order — tick several, then use the bar at the bottom to print all their labels at once" onclick="event.stopPropagation()" onchange="toggleSelect('${e.key}')">`
       + `<button class="removeb" title="Remove from queue (e.g. buyer cancelled)" onclick="removeOrder('${e.key}')">✕</button>`
       + `<div class="pos">${e.position}</div>`
-      + `<div class="who"><div class="name">${esc(e.buyer)} ${idTag} ${priBadge} ${countBadge} ${cancelBadge} ${holdBadge} ${reorderBadge} ${dupBadge} ${backBadge} ${ordNos}</div>`
+      + `<div class="who"><div class="name">${esc(e.buyer)} ${idTag} ${priBadge} ${countBadge} ${brkBadge} ${cancelBadge} ${holdBadge} ${reorderBadge} ${dupBadge} ${backBadge} ${ordNos}</div>`
       + `<div class="items">${esc(itemStr)}</div>`
       + `<div class="qtime"><span class="qtimer" data-key="${esc(e.key)}" data-since="${e.firstOrderAt||''}"></span></div></div>`
       + `<button class="caret" title="Show/hide every item in this order" onclick="toggleExpand('${e.key}')">▸</button>`
@@ -781,7 +861,8 @@
     return [e.position,e.buyer,e.buyerHandle||'',e.isPriority,e.bumped,e.orderCount,e.total,e.priorFulfilled||0,
       e.reorderedAtTop?1:0,e.reorderedAtTopCount||0,e.onHold?1:0,e.cancelRequested?1:0,e._dupName?1:0,e._idTag||'',
       e.firstOrderAt||'',e.reachedTopAt||'',selectedKeys.has(e.key)?1:0,
-      e.orderIds.join(','),e.items.map(i=>i.qty+'x'+i.name+(i.cancelled?'!x':'')).join('|')].join('~');
+      e.orderIds.join(','),e.items.map(i=>i.qty+'x'+i.name+(i.cancelled?'!x':'')).join('|'),
+      (e.breakNotes||[]).map(b=>b.qty+'x'+b.breakId+b.title).join('|')].join('~');
   }
   // Tick every live slot's timer text in place (no re-render, so it never fights
   // the diff). "In queue" = since first order; "at top" = since it hit #1.
@@ -1161,6 +1242,140 @@
     }catch{ alert("Couldn't reset that counter — check your connection and try again."); }
   }
 
+  // ── Breaks ──────────────────────────────────────────────────────────────
+  const collapsedBreaks = new Set();
+  const expandedRipped = new Set();
+  let breaksSig = '';
+  function brkVariant(name, title){
+    // Show just the variant/spot part when the line is "<product> - <variant>".
+    const n = String(name||'');
+    const i = n.lastIndexOf(' - ');
+    const v = i>0 ? n.slice(i+3) : '';
+    if(!v || /^default( title)?$/i.test(v.trim())) return '';
+    return v;
+  }
+  function renderBreaks(){
+    const list = state.breaks || [];
+    const filter = (document.getElementById('search').value||'').toLowerCase().trim();
+    const fAl = filter.replace(/[^a-z0-9]/g,'');
+    const sig = JSON.stringify([list, filter, [...collapsedBreaks], [...expandedRipped]]);
+    if(sig === breaksSig) return;
+    breaksSig = sig;
+    const open = list.filter(b=>b.status==='open');
+    const spots = open.reduce((n,b)=>n+(b.spots||0),0);
+    document.getElementById('brk-n').textContent = list.length
+      ? `${open.length} open · ${spots} spot${spots===1?'':'s'}` : '';
+    const el = document.getElementById('brk-list');
+    if(!list.length){
+      el.innerHTML = '<div class="brk-empty">No breaks yet. Break items (anything with "break" in the name) open a break here automatically and stay out of the queue.</div>';
+      return;
+    }
+    const ordered = [...open.slice().reverse(), ...list.filter(b=>b.status!=='open').slice().reverse()];
+    el.innerHTML = ordered.map(b=>{
+      const isOpen = b.status==='open';
+      const collapsed = isOpen ? collapsedBreaks.has(b.id) : !expandedRipped.has(b.id);
+      let entries = b.entries||[];
+      if(filter) entries = entries.filter(e=> (e.buyer||'').toLowerCase().includes(filter) || (e.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(e.orderId).replace(/[^a-z0-9]/gi,'').toLowerCase().includes(fAl)));
+      const rows = entries.map(e=>{
+        const vars = [...new Set(e.items.map(i=>brkVariant(i.name,b.title)).filter(Boolean))].join(', ');
+        let qb = '';
+        if(e.sameOrder && e.queuePos) qb = `<span class="badge bsame" title="This same order also has regular items — they are in the live queue at #${e.queuePos}.">📦 SAME ORDER · QUEUE #${e.queuePos}</span>`;
+        else if(e.sameOrder && e.queuePartFulfilled) qb = `<span class="badge bdone" title="This order also had regular items; that part was already fulfilled from the queue.">📦 queue part fulfilled</span>`;
+        else if(e.queuePos) qb = `<span class="badge bother" title="This buyer also has a separate order sitting in the live queue.">📦 also in queue #${e.queuePos}</span>`;
+        const cx = e.cancelRequested ? '<span class="badge hold" title="Cancellation requested on this order">⚠ CANCEL REQ</span>' : (e.onHold ? '<span class="badge onhold" title="TikTok has this order on hold — verify">⏸ ON HOLD</span>' : '');
+        return `<div class="brk-row${e.cancelled?' cx':''}">`
+          + `<span class="bq">${e.qty}×</span><span class="bname">${esc(e.buyer)}</span>`
+          + (e.buyerHandle?`<span class="bh">@${esc(e.buyerHandle)}</span>`:'')
+          + (vars?`<span class="bvar">${esc(vars)}</span>`:'')
+          + qb + cx
+          + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
+          + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
+          + (isOpen && !e.cancelled ? `<button class="undob" title="Wrong match — send this entry to the live queue instead" onclick="breakEntryToQueue('${b.id}','${esc(e.orderId)}')">→ queue</button>` : '')
+          + `</div>`;
+      }).join('') || `<div class="brk-empty">${filter?'No entries match the search.':'No entries yet.'}</div>`;
+      const acts = isOpen
+        ? `<button class="ghost" onclick="renameBreakUI('${b.id}')" title="Rename">✎</button>`
+          + `<button class="ghost" onclick="dissolveBreakUI('${b.id}')" title="Not actually a break — send every entry to the live queue">↩ Not a break</button>`
+          + `<button class="ripb" onclick="ripBreakUI('${b.id}',true)" title="Break has been ripped — new orders for this product start a fresh break">✓ Ripped</button>`
+        : `<button class="ghost" onclick="ripBreakUI('${b.id}',false)" title="Move back to open">↺ Reopen</button>`;
+      return `<div class="brk ${isOpen?'open':'ripped'}${collapsed?' collapsed':''}">`
+        + `<div class="brk-top" onclick="toggleBreak('${b.id}',${isOpen})"><span class="cav">▾</span>`
+        + `<span class="brk-title">${esc(b.title)}</span><span class="brk-pill">${isOpen?'OPEN':'RIPPED'}</span>`
+        + `<span class="brk-meta">${b.capacity?`<b>${b.spots} / ${b.capacity}</b> spots`:`${b.spots} spot${b.spots===1?'':'s'}`} · ${b.buyers} buyer${b.buyers===1?'':'s'}${b.value?' · '+money(b.value):''}</span>`
+        + (b.capacity && b.spots>=b.capacity ? `<span class="badge ${b.spots>b.capacity?'hold':'bdone'}" title="${b.spots>b.capacity?'More spots sold than the break has — check for an oversell':'Every spot is sold'}">${b.spots>b.capacity?'⚠ OVERSOLD +'+(b.spots-b.capacity):'FULL'}</span>` : '')
+        + `<span class="brk-acts" onclick="event.stopPropagation()">${acts}</span></div>`
+        + `<div class="brk-rows">${rows}</div></div>`;
+    }).join('');
+  }
+  function toggleBreak(id, isOpen){
+    const set = isOpen ? collapsedBreaks : expandedRipped;
+    if(set.has(id)) set.delete(id); else set.add(id);
+    renderBreaks();
+  }
+  async function postJSON(url, body){ return fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}); }
+  async function ripBreakUI(id, ripped){
+    if(ripped){
+      const ok = await uiConfirm({title:'Mark break ripped?', body:'The break moves to the ripped list. Any NEW orders for this product after this will start a fresh break.', confirmText:'✓ Ripped'});
+      if(!ok) return;
+    }
+    postJSON('/api/breaks/'+encodeURIComponent(id)+'/rip',{ripped});
+  }
+  async function dissolveBreakUI(id){
+    const ok = await uiConfirm({title:'Not a break?', body:'Every entry in this break goes into the live queue as a normal order, and this product will no longer be treated as a break automatically.', confirmText:'Send to queue', danger:true});
+    if(ok) postJSON('/api/breaks/'+encodeURIComponent(id)+'/dissolve');
+  }
+  async function breakEntryToQueue(id, orderId){
+    const ok = await uiConfirm({title:'Send to queue?', body:'This entry leaves the break and goes into the live queue as a normal order.', confirmText:'Send to queue'});
+    if(ok) postJSON('/api/breaks/'+encodeURIComponent(id)+'/entry/'+encodeURIComponent(orderId)+'/to-queue');
+  }
+  let bmMode = 'new', bmId = null;
+  function openBreakModal(mode, id){
+    bmMode = mode; bmId = id || null;
+    const cfg = state.config || {};
+    const isCfg = mode==='config';
+    document.getElementById('bm-new').style.display = isCfg ? 'none' : 'block';
+    document.getElementById('bm-cfg').style.display = isCfg ? 'block' : 'none';
+    document.getElementById('bm-match').parentNode.querySelectorAll('.bm-l')[1].style.display = mode==='rename' ? 'none' : 'block';
+    document.getElementById('bm-match').style.display = mode==='rename' ? 'none' : 'block';
+    if(isCfg){
+      document.getElementById('bm-title').textContent = 'Break settings';
+      document.getElementById('bm-desc').textContent = 'Items matching a break word are pulled out of the live queue into their own break. Any other items in the same order still go to the queue, and both sides are flagged.';
+      document.getElementById('bm-auto').checked = cfg.autoBreaks !== false;
+      document.getElementById('bm-words').value = (cfg.breakKeywords||[]).join('\n');
+      document.getElementById('bm-ignore').value = (cfg.breakIgnore||[]).join('\n');
+    } else if(mode==='rename'){
+      const b = (state.breaks||[]).find(x=>x.id===id);
+      document.getElementById('bm-title').textContent = 'Rename break';
+      document.getElementById('bm-desc').textContent = '';
+      document.getElementById('bm-name').value = b ? b.title : '';
+    } else {
+      document.getElementById('bm-title').textContent = 'New break';
+      document.getElementById('bm-desc').textContent = 'Any order item containing the match text goes into this break instead of the queue, including items already waiting in the queue.';
+      document.getElementById('bm-name').value = '';
+      document.getElementById('bm-match').value = '';
+    }
+    document.getElementById('breakModal').classList.add('open');
+    setTimeout(()=>{ const f = isCfg ? document.getElementById('bm-words') : document.getElementById('bm-name'); f && f.focus(); }, 30);
+  }
+  function renameBreakUI(id){ openBreakModal('rename', id); }
+  function closeBreakModal(){ document.getElementById('breakModal').classList.remove('open'); }
+  async function saveBreakModal(){
+    const lines = (id)=>document.getElementById(id).value.split('\n').map(x=>x.trim()).filter(Boolean);
+    if(bmMode==='config'){
+      await postJSON('/api/break-config',{ keywords: lines('bm-words'), auto: document.getElementById('bm-auto').checked, ignore: lines('bm-ignore') });
+    } else if(bmMode==='rename'){
+      const t = document.getElementById('bm-name').value.trim();
+      if(!t) return;
+      await postJSON('/api/breaks/'+encodeURIComponent(bmId)+'/rename',{title:t});
+    } else {
+      const t = document.getElementById('bm-name').value.trim();
+      const m = document.getElementById('bm-match').value.trim();
+      if(!t && !m) return;
+      await postJSON('/api/breaks',{title:t||m, match:m||t});
+    }
+    closeBreakModal();
+  }
+
   function render(){
     const st = state.stats||{};
     const live = !!st.live;
@@ -1180,6 +1395,7 @@
 
     document.getElementById('s-active').textContent = st.activeCount||0;
     document.getElementById('s-pri').textContent = st.priorityCount||0;
+    document.getElementById('s-brk').textContent = st.breakSpots||0;
     document.getElementById('s-val').textContent = money(st.activeValue);
     document.getElementById('s-done').textContent = st.fulfilledCount||0;
     document.getElementById('s-avgq').textContent = fmtDur(st.avgTimeInQueueMs);
@@ -1194,6 +1410,7 @@
     }
 
     renderQueue();
+    renderBreaks();
     tickTimers();
     renderVariantsAdmin();
     renderClips();
@@ -1222,9 +1439,10 @@
       cEl.innerHTML = c.length ? c.map(s=>`<div class="done-row cancel-row">
           <span class="ordno">${(s.orderIds||[]).map(id=>'#'+esc(id)).join(' ')}</span>
           <span class="name">${esc(s.buyer)}</span>
+          ${s.isBreak?'<span class="badge brk">🎟 break</span>':''}
           <span>${s.itemCount} item${s.itemCount===1?'':'s'}</span>
           <span style="margin-left:auto">${money(s.total)}</span>
-          <button class="undob" title="Put this order back into the queue" onclick="reopenOrder('${s.key}')">↩ Restore</button>
+          <button class="undob" title="${s.isBreak?'Put this entry back into its break':'Put this order back into the queue'}" onclick="reopenOrder('${s.key}')">↩ Restore</button>
         </div>`).join('') : '<div class="empty">No cancelled orders this stream.</div>';
     }
 

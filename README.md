@@ -66,6 +66,30 @@ page**, and mirrored into **Discord**. Built to handle a busy multi-hour live
   tokens are written to `data/`. On Render, mount a **persistent disk** at
   `/opt/render/project/src/data` so all of it survives deploys and restarts.
 
+## 🎟 Breaks (event-style)
+
+Break items never clog the running queue. Any item whose name contains a
+**break word** (default `break`, whole word only, so set names like
+*BREAKpoint* / *BREAKthrough* are never caught) is pulled out of the order into
+its own **break** — one break per break product, opened automatically the first
+time someone buys in (e.g. "Dragon Frontiers Galaxy Rips LT DADDY BREAK").
+
+- **Split orders** — the break items go to the break; every other item in the
+  same order still goes to the live queue as normal. The queue slot gets a
+  **🎟 + BREAK ×N** badge (expanded view lists the break items as *NOT in this
+  bag*), and the break entry shows **📦 SAME ORDER · QUEUE #N**. If the buyer just
+  has a separate order waiting in the queue it shows **📦 also in queue #N**.
+- **✓ Ripped** closes a break; any new orders for that product start a fresh
+  break (#2, #3 …). **↺ Reopen** undoes it.
+- **↩ Not a break** sends every entry to the live queue and stops treating that
+  product as a break. **→ queue** does the same for a single entry.
+- **＋ New break** opens one by hand from any item text (e.g. `daddy break`) —
+  matching items already waiting in the queue are pulled into it.
+- **⚙ Break settings** — break words, auto-open on/off, and a never-a-break list.
+- Break-only orders still get the TikTok hold / cancellation re-checks, show on
+  the public page under the break, and are included in CSV / SKU exports and
+  Past streams.
+
 ## Try it right now (simulator — no accounts needed)
 
 ```bash

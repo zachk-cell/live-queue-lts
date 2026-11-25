@@ -150,6 +150,13 @@ function publicView() {
     // Per-variant sales counters (public tally). Empty on stores that don't
     // configure any, so the public page simply renders nothing.
     variants: (snap.variants || []).map((v) => ({ id: v.id, label: v.label, count: v.count })),
+    // Open breaks with who's in them (display names only — never @usernames).
+    breaks: live
+      ? (snap.breaks || []).filter((b) => b.status === 'open').map((b) => ({
+          id: b.id, title: b.title, spots: b.spots, capacity: b.capacity || null,
+          entries: b.entries.filter((e) => !e.cancelled).map((e) => ({ buyer: e.buyer, qty: e.qty })),
+        }))
+      : [],
   };
 }
 
@@ -255,6 +262,18 @@ app.post('/api/variant-count/:id', requireAuth, (req, res) => {
   res.json({ ok, variantCounts: queue.variantCounts });
 });
 app.post('/api/remove/:key', requireAuth, (req, res) => res.json({ ok: !!queue.removeSlot(req.params.key) }));
+
+// ── Breaks (event-style sections; break items stay out of the running queue) ──
+app.post('/api/breaks', requireAuth, (req, res) => {
+  const b = queue.createBreak({ title: req.body.title, match: req.body.match });
+  res.json({ ok: !!b, break: b });
+});
+app.post('/api/breaks/:id/rename', requireAuth, (req, res) => res.json({ ok: !!queue.renameBreak(req.params.id, req.body.title) }));
+app.post('/api/breaks/:id/rip', requireAuth, (req, res) => res.json({ ok: !!queue.setBreakRipped(req.params.id, req.body.ripped !== false) }));
+app.post('/api/breaks/:id/dissolve', requireAuth, (req, res) => res.json({ ok: !!queue.dissolveBreak(req.params.id) }));
+app.post('/api/breaks/:id/entry/:orderId/to-queue', requireAuth, (req, res) =>
+  res.json({ ok: !!queue.moveBreakEntryToQueue(req.params.id, req.params.orderId) }));
+app.post('/api/break-config', requireAuth, (req, res) => res.json({ ok: true, ...queue.setBreakConfig(req.body || {}) }));
 
 // ── Stream clip log (editor aid) ──
 // Set (or clear) the manually-entered stream start time. Body: { at } epoch ms,
