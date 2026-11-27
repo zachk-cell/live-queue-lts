@@ -181,7 +181,7 @@
       <li><b>Runs a pre-live backfill.</b> It quietly pulls in any orders placed in roughly the <b>15 minutes before</b> you went live, so a late start doesn't miss early buyers. This runs in the background — going live stays instant, and the orders stream in as they're fetched.</li>
     </ul>
     <div class="call tip"><span class="lbl">Why the backfill matters</span>People start buying the second you go on. If you were a few minutes late hitting <b>Go Live</b>, those orders still land in the queue. The backfill is <b>idempotent</b> — it only adds orders that aren't already there and are still unshipped, so it can <b>never</b> create duplicates.</div>
-    <div class="call key"><span class="lbl">Offline orders</span>While you're <b>offline</b>, orders are still captured (checked every 30 seconds): <b>break spots</b> go into their break and <b>everything else</b> lands in <b>🌙 Offline orders</b>. When you hit Go Live, any offline order from the last ~15 minutes that hasn't been handled moves into the live queue — same as the pre-live backfill always did. Older offline orders stay in their own list.</div>
+    <div class="call key"><span class="lbl">Offline orders</span>While you're <b>offline</b>, orders are still captured (checked every 5 minutes): <b>break spots</b> go into their break and <b>everything else</b> lands in <b>🌙 Offline orders</b>. When you hit Go Live, any offline order from the last ~15 minutes that hasn't been handled moves into the live queue — same as the pre-live backfill always did. Older offline orders stay in their own list.</div>
   </section>
 
   <section id="board">

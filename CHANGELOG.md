@@ -2,6 +2,12 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (overnight) — Lighter offline checking
+- While offline, the queue now checks TikTok for new orders **every 5 minutes** instead of every 30 seconds, which cuts background traffic.
+- **Nothing is missed:** offline orders just appear up to 5 minutes later.
+- Going live still pulls the last 15 minutes of orders straight into the queue.
+- While live, it still checks every 10 seconds.
+
 ## November 27, 2026 (late night) — Smarter #1 buyer chat matching
 - The chat box matches the #1 buyer by **display name or @username**, ignoring emoji, accents, spacing and capitals.
 - Once a buyer's display name matches, it **remembers their @username**, so their later messages still match.
@@ -22,7 +28,7 @@ Every update to the queue is listed here, newest first: what changed and what it
 ## November 27, 2026 — Offline orders, seat labels, reports, back office & metrics
 
 ### Orders are never missed now
-- **Always listening.** While you're offline the queue still checks TikTok every 30 seconds. Break spots go straight into their break (a break opens automatically if needed), and everything else lands in the new **🌙 Offline orders** section.
+- **Always listening.** While you're offline the queue still checks TikTok for new orders (now every 5 minutes). Break spots go straight into their break (a break opens automatically if needed), and everything else lands in the new **🌙 Offline orders** section.
 - **Offline orders section.** Grouped by day. Select orders, print a label for each (flagged **OFFLINE ORDER**), and mark them handled. Undo stays available for 7 days.
 - **Go Live picks up the last 15 minutes.** Any unhandled offline order from the 15 minutes before Go Live moves into the live queue, same as the old pre-live backfill.
 - **No double-counting.** A live order seen again after End Live is never re-added as an offline order.

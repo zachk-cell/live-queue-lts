@@ -550,7 +550,10 @@ export function startPolling(queue) {
 
   // While OFFLINE the poller keeps running at a slower pace and captures every
   // order: break spots go to their break, everything else to Offline Orders.
-  const offlineEvery = Number(process.env.TIKTOK_OFFLINE_POLL_MS) || 30000;
+  // Offline checks are light on purpose (every 5 min) — nothing is missed, an
+  // order just lands a few minutes later; Go Live's pre-live backfill still pulls
+  // the last 15 minutes straight into the live queue.
+  const offlineEvery = Number(process.env.TIKTOK_OFFLINE_POLL_MS) || 300000;
   let lastOffline = 0;
   let polling = false;
   async function poll() {
