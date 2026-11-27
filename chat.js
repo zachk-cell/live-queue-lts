@@ -70,8 +70,13 @@ export class LiveChat extends EventEmitter {
       await conn.connect();
       this._set('connected');
     } catch (e) {
-      const m = String(e?.message || e || 'could not connect');
-      this._set(/offline|not live|UserOffline/i.test(m) ? 'offline' : 'error', m.slice(0, 200));
+      let m = String(e?.message || e || 'could not connect');
+      // "Failed to retrieve Room ID from all sources" hides the real reasons —
+      // surface each source's error so the panel/log says what TikTok returned.
+      const inner = (e?.config?.requestErrs || e?.requestErrs || []).map((x) => String(x?.message || x).replace(/\s+/g, ' ').slice(0, 160));
+      if (inner.length) m += ' — ' + inner.join(' | ');
+      console.warn('[chat] connect failed for @' + u + ':', m);
+      this._set(/offline|not live|UserOffline|isn't online|not online/i.test(m) ? 'offline' : 'error', m.slice(0, 600));
       this._scheduleRetry();
     }
   }
