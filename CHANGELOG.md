@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (late night) — Smarter #1 buyer chat matching
+- The chat box matches the #1 buyer by **display name or @username**, ignoring emoji, accents, spacing and capitals.
+- Once a buyer's display name matches, it **remembers their @username**, so their later messages still match.
+- It still follows whoever is #1 automatically. The only one-time setting is the LTs streaming account's @handle, so it knows which LIVE to read.
+
 ## November 27, 2026 (night) — Tidier offline orders, ⭐ priority ticks
 - **🌙 Offline orders moved** below "Fulfilled this stream". Each order is now one line (buyer, item count, first item, total) and **clicking it expands** the full item list, so nothing wraps.
 - **The after-action report banner hides as soon as you Go Live**, so it's out of the way during the stream. Every past report is always under **📋 Reports** in the header.

@@ -1821,12 +1821,26 @@
   // ── #1 buyer chat (read-only TikTok LIVE chat) ──
   let chatMsgs = [], chatStatus = {state:'off'}, chatShowAll = false, chatSig = '';
   try { if(localStorage.getItem('ltsChatOpen')==='1') document.getElementById('chatbox').classList.remove('min'); } catch {}
-  const _cn = (s)=>String(s||'').toLowerCase().replace(/^@/,'').trim();
-  const _ca = (s)=>_cn(s).replace(/[^a-z0-9._]/g,'');
+  // Matching chat → #1 buyer. The queue shows the buyer's TikTok DISPLAY NAME
+  // (plus their @username when the order includes it); each chat message carries
+  // both the sender's display name (nickname) and @username. We compare all of
+  // them, tolerant of emoji, accents, zero-width characters, spacing and case —
+  // and once a display name matches, we remember that sender's @username for the
+  // buyer, so their later messages match even if the name renders differently.
+  const _cn = (s)=>String(s||'').normalize('NFKC').replace(/[​-‍︎️⁠]/g,'').toLowerCase().replace(/^@/,'').replace(/\s+/g,' ').trim();
+  const _ca = (s)=>_cn(s).replace(/[^\p{L}\p{N}._]/gu,'');
+  const chatLearned = new Map(); // buyerId -> Set(@usernames seen matching by name)
   function chatIsTop(m, top){
     if(!top) return false;
+    const learned = chatLearned.get(top.buyerId);
+    if(learned && m.handle && learned.has(_cn(m.handle))) return true;
     const names = [top.buyer, top.buyerHandle].filter(Boolean);
-    return names.some(n => (_cn(n) && (_cn(n)===_cn(m.handle) || _cn(n)===_cn(m.nickname))) || (_ca(n) && (_ca(n)===_ca(m.handle) || _ca(n)===_ca(m.nickname))));
+    const hit = names.some(n => {
+      const a=_cn(n), b=_ca(n);
+      return (a && (a===_cn(m.handle) || a===_cn(m.nickname))) || (b.length>=3 && (b===_ca(m.handle) || b===_ca(m.nickname)));
+    });
+    if(hit && m.handle){ if(!chatLearned.has(top.buyerId)) chatLearned.set(top.buyerId, new Set()); chatLearned.get(top.buyerId).add(_cn(m.handle)); }
+    return hit;
   }
   function renderChat(){
     const top = (state.queue||[])[0] || null;
