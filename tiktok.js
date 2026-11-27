@@ -66,6 +66,9 @@ function applyTokenData(d) {
     tokens.accessExpireAt = absMs - 60000; // refresh a minute early
   }
   if (d.seller_name) tokens.sellerName = d.seller_name;
+  // Which API permissions the shop actually granted this app (TikTok returns
+  // them with every token). Used by the permissions check.
+  if (Array.isArray(d.granted_scopes)) { tokens.grantedScopes = d.granted_scopes.map(String); tokens.scopesAt = Date.now(); }
   tokens.lastError = '';
   persist();
 }
@@ -755,4 +758,33 @@ export async function fetchOrdersRange(fromMs, toMs, onProgress) {
     if (onProgress) onProgress(Math.min(ids.length, i + 50), ids.length);
   }
   return { ok: true, orders };
+}
+
+
+// ---------------- Permissions check (read-only) ----------------
+// Reports which API permissions the LTs shop granted this app, and proves each
+// one with a harmless READ call. Never changes anything in the shop.
+export async function checkPermissions({ refresh = false } = {}) {
+  if (!tokens.accessToken || !tokens.shopCipher) return { ok: false, error: 'not authorized with TikTok' };
+  let refreshError = '';
+  if ((refresh || !tokens.grantedScopes) && tokens.refreshToken) {
+    try { await tokenRefresh(); } catch (e) { refreshError = e.message; }
+  }
+  const probe = async (fn) => { try { const b = await fn(); const e = _err(b); return e ? { ok: false, error: e } : { ok: true }; } catch (e) { return { ok: false, error: e.message }; } };
+  const now = Math.floor(Date.now() / 1000);
+  const probes = {
+    orders: await probe(() => apiCall('POST', `/order/${API_VERSION}/orders/search`, { page_size: 1 }, { create_time_ge: now - 86400 })),
+    products: await probe(() => apiCall('POST', `/product/${API_VERSION}/products/search`, { page_size: 1 }, { status: 'ALL' })),
+  };
+  const scopes = tokens.grantedScopes || null;
+  const has = (re) => (scopes ? scopes.some((x) => re.test(x)) : null);
+  const features = [
+    { feature: 'Read orders (queue, offline orders, reports, metrics, import)', needed: true, granted: probes.orders.ok, how: 'test read' },
+    { feature: 'Read products, prices & stock (catalog sync, time to sell)', needed: true, granted: probes.products.ok, how: 'test read' },
+    { feature: 'Edit prices & stock from the back office', needed: true, granted: scopes ? has(/product.*(write|edit|manage|update|inventory|price)|inventory|price/i) : null, how: 'granted permissions' },
+    { feature: 'Actual fees & payouts (optional — would replace the 6% estimate)', needed: false, granted: scopes ? has(/financ|settle|statement|transaction/i) : null, how: 'granted permissions' },
+    { feature: 'Actual shipping label costs (optional — would replace the $8 estimate)', needed: false, granted: scopes ? has(/logistic|fulfil|shipping|package/i) : null, how: 'granted permissions' },
+    { feature: 'Cancellations & returns detail (optional)', needed: false, granted: scopes ? has(/return|refund|cancel|reverse/i) : null, how: 'granted permissions' },
+  ];
+  return { ok: true, shop: tokens.sellerName || tokens.shopId || '', grantedScopes: scopes, scopesAt: tokens.scopesAt || null, refreshError, probes, features };
 }

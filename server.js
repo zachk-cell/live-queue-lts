@@ -17,7 +17,7 @@ import { Server as IOServer } from 'socket.io';
 import { authenticator } from 'otplib';
 
 import { QueueEngine } from './queue.js';
-import { tiktokEnabled, mountAuth, startPolling, tiktokBoot, tiktokStatus, tiktokTokensForEnv, debugShops, refetchShopCipher, debugRawOrder, debugCancellations, backfillRecent, auditOrders } from './tiktok.js';
+import { tiktokEnabled, mountAuth, startPolling, tiktokBoot, tiktokStatus, tiktokTokensForEnv, debugShops, refetchShopCipher, debugRawOrder, debugCancellations, backfillRecent, auditOrders, checkPermissions } from './tiktok.js';
 import { startDiscord, discordEnabled } from './discord.js';
 import { startSimulator } from './simulator.js';
 import { Ledger } from './ledger.js';
@@ -607,6 +607,11 @@ app.get('/api/export-skus/:id', requireAuth, (req, res) => {
 // ---------- TikTok Shop ingest ----------
 mountAuth(app, ADMIN); // /auth/tiktok/callback (Redirect URL target)
 app.get('/api/tiktok-status', requireAuth, (_req, res) => res.json(tiktokStatus()));
+// Read-only: which TikTok API permissions the shop granted, proven with test reads.
+app.get('/api/tiktok-permissions', requireAuth, async (req, res) => {
+  try { res.json(await checkPermissions({ refresh: req.query.refresh === '1' })); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 // Admin only: reveal current live tokens to pin into Render env (persistence across spin-downs).
 app.get('/api/tiktok-tokens', requireAuth, (_req, res) => res.json(tiktokTokensForEnv()));
 // Debug: inspect the raw shops-endpoint response (admin only).

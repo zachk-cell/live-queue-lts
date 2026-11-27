@@ -2,6 +2,9 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (evening) — TikTok permissions check
+- **Back office → Settings → Check TikTok permissions.** Shows which API permissions the LTs shop granted the app, and proves each with a harmless read: orders, products, price/stock editing, plus optional finance, shipping and returns. It never changes anything.
+
 ## November 27, 2026 (later) — Fix: past-stream reports
 - Break orders that carried over from one stream to the next were counted in the **later** stream's imported report. Each order is now credited to the stream it was **placed** in, keeping its latest status. Past reports were corrected automatically.
 

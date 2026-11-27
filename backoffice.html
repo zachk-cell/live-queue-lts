@@ -563,6 +563,9 @@ function renderSettings(){
     <p class="small muted" style="margin-top:0">Pulls every order from TikTok for the period you pick into the sales history, so metrics and exports cover more than what the queue has seen. Safe to run again — nothing is duplicated. Orders that fall inside a recorded stream count as live; others as offline.</p>
     <div class="row"><select id="idays" style="width:auto"><option value="30">Last 30 days</option><option value="90" selected>Last 90 days</option><option value="180">Last 6 months</option><option value="365">Last 12 months</option></select><button id="igo">⬇ Import</button></div>
     <p class="small" id="imsg">${li ? (li.error?`<span style="color:var(--bad)">Last import failed: ${esc(li.error)}</span>`:`Last import ${esc(fmtD(li.at,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))}: ${int(li.added)} orders added (last ${li.days} days).`) : '<span class="muted">Not run yet.</span>'}</p></div>
+  <div class="card"><h2>TikTok permissions</h2>
+    <p class="small muted" style="margin-top:0">Checks which API permissions the LTs shop granted this app, and proves each with a harmless read. Changes nothing.</p>
+    <button id="permgo">Check TikTok permissions</button><div id="permout" class="small" style="margin-top:10px"></div></div>
   <div class="card"><h2>Back-office password</h2>
     ${D.password==='env' ? '<p class="small muted">Set in Render as <code>BACKOFFICE_PASSWORD</code> — change it there.</p>' :
     `<input type="password" id="pc" placeholder="Current password" style="width:100%;margin-bottom:6px"><input type="password" id="pn" placeholder="New password (8+ characters)" style="width:100%;margin-bottom:8px">
@@ -585,6 +588,15 @@ function renderSettings(){
       clearInterval(poll);
       await reloadData();
     }, 2000);
+  };
+  $('permgo').onclick = async ()=>{
+    $('permout').textContent = 'Checking…';
+    const r = await fetch('/api/tiktok-permissions?refresh=1').then(x=>x.json()).catch(e=>({ok:false,error:e.message}));
+    if(!r.ok){ $('permout').innerHTML = `<span style="color:var(--bad)">${esc(r.error||'Check failed')}</span>`; return; }
+    const mark = (g)=> g===true ? '<span style="color:var(--good)">✓ yes</span>' : g===false ? '<span style="color:var(--bad)">✗ missing</span>' : '<span class="muted">unknown</span>';
+    $('permout').innerHTML = `<table><tbody>${r.features.map(f=>`<tr><td>${esc(f.feature)}${f.needed?'':' <span class="muted">(optional)</span>'}</td><td class="n">${mark(f.granted)}</td></tr>`).join('')}</tbody></table>`
+      + `<p class="muted">Shop: ${esc(r.shop)} · ${r.grantedScopes?r.grantedScopes.length+' permissions granted':'TikTok did not report the permission list'}</p>`
+      + (r.grantedScopes?`<details><summary class="muted">Raw permission list</summary><code>${r.grantedScopes.map(esc).join(', ')}</code></details>`:'');
   };
   if($('pgo')) $('pgo').onclick = async ()=>{
     const r = await api('/api/bo/password', {current:$('pc').value, next:$('pn').value});
