@@ -509,7 +509,10 @@ function renderMetrics(){
   // best sellers
   const items = by((f)=>f.name).sort((a,b)=>b.gross-a.gross).slice(0,15);
   // price bands
-  const listed = {}; for(const p of (D.catalog.products||[])) { listed['prod:'+p.id]=p.createdAt; for(const k of (p.skus||[])) listed['sku:'+k.id]=p.createdAt; }
+  // Listing date per item. A listing re-titled for a different item (TikTok keeps
+  // the SKU) counts from its last sale under the old name, not the original date.
+  const RU = D.reused || {};
+  const listed = {}; for(const p of (D.catalog.products||[])) { listed['prod:'+p.id]=p.createdAt; for(const k of (p.skus||[])) { const ru = RU[k.id]; listed['sku:'+k.id] = ru ? Math.max(p.createdAt||0, ru.at) : p.createdAt; if(ru) listed['prod:'+p.id] = listed['sku:'+k.id]; } }
   const firstSeen = {}; for(const o of ORDERS) for(const it of o.items){ const k=itemKey(it); firstSeen[k]=Math.min(firstSeen[k]||Infinity,o.createdAt); }
   const bandRows = PRICE_BANDS.map(b=>{
     const lab = bandLabel(b); const fs = facts.filter(f=>f.band===lab);
@@ -528,7 +531,7 @@ function renderMetrics(){
     const last = Math.max(...fs.map(f=>f.t));
     const days = Math.max(1, (Math.max(last, now) - start)/86400000);
     const perWeek = r.units / days * 7;
-    return { ...r, name: f0.name, band: bandOf(r.gross/r.units), from: start, basis: L?'listing':'first sale', perWeek, daysFor10: perWeek ? 10/(perWeek/7) : null, consigned: fs.some(f=>f.consigned) };
+    return { ...r, name: f0.name, band: bandOf(r.gross/r.units), from: start, basis: L?((f0.skuId && RU[f0.skuId])?'relisted':'listing'):'first sale', perWeek, daysFor10: perWeek ? 10/(perWeek/7) : null, consigned: fs.some(f=>f.consigned) };
   }).sort((a,b)=>b.perWeek-a.perWeek).slice(0,20);
   // consignment
   const cf = facts.filter(f=>f.consigned), of = facts.filter(f=>!f.consigned);

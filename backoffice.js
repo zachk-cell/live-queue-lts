@@ -144,7 +144,7 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
       settings: ledger.bo.settings, items: ledger.bo.items, catalog: ledger.bo.catalog,
       changelog: ledger.bo.changelog.slice(0, 500), seen: [...seen.values()].map((s) => ({ ...s, gross: Math.round(s.gross * 100) / 100, prices: undefined, lastPrice: s.prices.at(-1) || 0 })),
       snapshots: ledger.bo.snapshots.slice(-400), streams: ledger.streamList().map((s) => ({ id: s.id, startedAt: s.startedAt, endedAt: s.endedAt })),
-      password: ledger.passwordSource(), lastImport: ledger.bo.lastImport || null,
+      password: ledger.passwordSource(), lastImport: ledger.bo.lastImport || null, reused: ledger.bo.reused || {},
     });
   });
   // Every order (compact) for the metrics dashboard + profitability (client-side).
@@ -219,6 +219,7 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
           added++;
         }
       }
+      ledger.detachRepurposed((ledger.bo.catalog && ledger.bo.catalog.products) || []);
       ledger.bo.lastImport = { at: Date.now(), added, cancelled, linked, days, ...(err ? { error: err } : {}) };
       ledger.log({ kind: 'import', key: 'orders', label: 'TikTok order import', field: `last ${days} days`, from: null, to: `${added} orders added, ${linked} older lines linked to inventory` });
       ledger.flush(); ledger.saveBo();

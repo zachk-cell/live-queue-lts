@@ -33,6 +33,15 @@ export function itemKey(it) {
   if (it && it.productId) return 'prod:' + String(it.productId);
   return 'name:' + normName(it && it.name);
 }
+/** Do two listing names describe the same item? Word overlap on the shorter
+ *  name (ignores case, accents, punctuation, "Default"). */
+export function sameItemName(a, b) {
+  const toks = (x) => new Set(String(x || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && w !== 'default'));
+  const A = toks(a), B = toks(b);
+  if (!A.size || !B.size) return true;
+  let i = 0; for (const w of A) if (B.has(w)) i++;
+  return i / Math.min(A.size, B.size) >= 0.6;
+}
 export function normName(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -57,6 +66,7 @@ export class Ledger {
       snapshots: [],    // [{ ts, stock: { skuId: qty }, price: { skuId: price } }] (daily)
       password: null,   // { salt, hash } (scrypt) — only when not set via env
       lastImport: null,
+      reused: {},       // skuId -> { at, oldName, units } — listing re-titled for a different item
     };
     this._timer = null;
     this._boTimer = null;
@@ -182,7 +192,7 @@ export class Ledger {
     const pool = (raw.items || []).filter((x) => x.skuId || x.productId);
     let n = 0;
     for (const it of prev.items) {
-      if (it.skuId) continue;
+      if (it.skuId || it.prevSkuId) continue; // prevSkuId: detached on purpose (reused listing)
       const m = pool.find((x) => String(x.name || '') === it.name) || pool.find((x) => normName(x.name) === normName(it.name));
       if (!m) continue;
       it.productId = m.productId ? String(m.productId) : it.productId || '';
@@ -191,6 +201,37 @@ export class Ledger {
       n++;
     }
     if (n) this.save();
+    return n;
+  }
+  /** TikTok keeps a listing's SKU id when the seller re-titles it for a different
+   *  item. Sales recorded under a clearly different name are split off from the
+   *  listing (ids moved to prevSkuId/prevProductId), so they count as their own
+   *  item and the current listing's sold count, cost, ⭐/🎯 flags and time-to-sell
+   *  only cover what it is now. Small title edits (same item) are left alone. */
+  detachRepurposed(products) {
+    const cur = new Map();
+    for (const p of products || []) for (const s of (p.skus || [])) cur.set(String(s.id), `${p.title || ''} ${s.name || ''}`);
+    if (!cur.size) return 0;
+    this.bo.reused = this.bo.reused || {};
+    let n = 0;
+    for (const o of Object.values(this.orders)) {
+      for (const it of (o.items || [])) {
+        if (!it.skuId || !cur.has(it.skuId)) continue;
+        if (sameItemName(it.name, cur.get(it.skuId))) continue;
+        const r = this.bo.reused[it.skuId] || (this.bo.reused[it.skuId] = { at: 0, oldName: it.name, units: 0, title: '' });
+        r.at = Math.max(r.at, Number(o.createdAt) || 0); r.units += it.qty || 1; r.title = cur.get(it.skuId).trim();
+        it.prevSkuId = it.skuId; it.prevProductId = it.productId || '';
+        it.skuId = ''; it.productId = '';
+        n++;
+      }
+    }
+    if (n) {
+      for (const [sku, r] of Object.entries(this.bo.reused)) if (!r.logged) {
+        this.log({ kind: 'reused', key: 'sku:' + sku, label: r.title, field: 'listing reused', from: `${r.units} sales of “${r.oldName}”`, to: 'kept as a separate item' });
+        r.logged = true;
+      }
+      this.save(); this.saveBo();
+    }
     return n;
   }
   markCancelled(orderId, at = Date.now()) {
@@ -402,6 +443,7 @@ export class Ledger {
       if (last && last.day === day) this.bo.snapshots[this.bo.snapshots.length - 1] = snap;
       else this.bo.snapshots.push(snap);
       if (this.bo.snapshots.length > 1200) this.bo.snapshots.splice(0, this.bo.snapshots.length - 1200);
+      this.detachRepurposed(products);
     } else {
       this.bo.catalog = { ...this.bo.catalog, error: String(error || 'sync failed'), errorAt: Date.now() };
     }

@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (late night) — Reused listings counted correctly
+- **Reused listings are now handled.** TikTok keeps a listing's ID when it's re-titled for a different item. The back office now spots sales made under a clearly different name and counts them as their own item.
+- **Dragon Frontiers DADDY BREAK (100 Spot):** its listing was previously the “Legendary Collection Galaxy Rips Galactic Gooner Bag” (924 units sold Nov 14). Those sales are now their own item, so the break shows only its own sales. Its time to sell is measured from when the listing was reused, not its original listing date.
+- Small title edits to the same item are left alone, and every split is logged in the Changelog. Nothing is deleted: totals, reports and the Gooner Bag's own history are unchanged.
+
 ## November 27, 2026 (night) — Tidier inventory list
 - **Deactivated and Deleted listings** now sit in their own collapsed sections at the bottom of Inventory & pricing. Click a section to open it.
 - **Sort by Price or Stock:** click the column header for high → low, click again for low → high, and a third time to clear.
