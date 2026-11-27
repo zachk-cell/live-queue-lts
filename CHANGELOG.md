@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (night) — Tidier inventory list
+- **Deactivated and Deleted listings** now sit in their own collapsed sections at the bottom of Inventory & pricing. Click a section to open it.
+- **Sort by Price or Stock:** click the column header for high → low, click again for low → high, and a third time to clear.
+- **No more jumping to the top:** ticking ⭐ or 🎯, editing a value, or sorting keeps your place in the list.
+
 ## November 27, 2026 (evening) — 🎯 Break toggle
 - **You choose which items are breaks.** In Back office → Inventory & pricing, the new **🎯 Break** column marks a listing as a break. When it sells, its spots open their own break section, with the spot total read from the name (e.g. “(33 Spot)”).
 - **A name with “break” in it no longer opens a break by itself**, so *Box Break* packs stay normal (priority) queue items.
