@@ -61,9 +61,10 @@ export class LiveChat extends EventEmitter {
         const msg = {
           id: d?.common?.msgId ? String(d.common.msgId) : `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           at: Date.now(),
-          handle: String(d?.user?.uniqueId || ''),
+          // Connector v2.5 (proto v3): @handle is user.displayId, id is user.id.
+          handle: String(d?.user?.uniqueId || d?.user?.displayId || ''),
           nickname: String(d?.user?.nickname || ''),
-          userId: d?.user?.userId ? String(d.user.userId) : '',
+          userId: String(d?.user?.userId || d?.user?.id || ''),
           text: String(d?.comment || d?.content || ''),
         };
         if (!msg.text) return;
