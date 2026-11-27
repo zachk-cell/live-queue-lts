@@ -326,10 +326,10 @@ export class Ledger {
     const cur = this.bo.items[k] || {};
     const next = { ...cur };
     const changes = [];
-    for (const f of ['cost', 'consigned', 'consignee', 'splitType', 'splitValue', 'notes', 'priority']) {
+    for (const f of ['cost', 'consigned', 'consignee', 'splitType', 'splitValue', 'notes', 'priority', 'isBreak']) {
       if (!(f in patch)) continue;
       let v = patch[f];
-      if (f === 'priority') v = !!v;
+      if (f === 'priority' || f === 'isBreak') v = !!v;
       if (f === 'cost' || f === 'splitValue') v = (v === '' || v == null) ? null : Math.round(Number(v) * 100) / 100;
       if (f === 'consigned') v = !!v;
       if (f === 'splitType') v = v === 'fixed' ? 'fixed' : 'pct';

@@ -160,6 +160,7 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
     if (!b.key) return res.status(400).json({ ok: false, error: 'missing item' });
     const r = ledger.setItemTerms(b.key, b.patch || {}, { label: b.label });
     if (b.patch && 'priority' in b.patch) queue.recomputePriority(); // ⭐ tick takes effect on the live queue now
+    if (b.patch && 'isBreak' in b.patch) queue.itemFlagsChanged(b.label, !!b.patch.isBreak); // 🎯 applies to orders from now on
     res.json({ ok: true, ...r });
   });
   app.post('/api/bo/settings', requireAuth, requireBo, (req, res) => res.json({ ok: true, ...ledger.setSettings(req.body || {}), settings: ledger.bo.settings }));

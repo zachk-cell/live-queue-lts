@@ -405,6 +405,21 @@ export class QueueEngine extends EventEmitter {
     if (!this.ledger || !it) return false;
     return !!termsFromMap(this.ledger.bo.items, it).priority;
   }
+  _itemFlaggedBreak(it) {
+    if (!this.ledger || !it) return false;
+    return !!termsFromMap(this.ledger.bo.items, it).isBreak;
+  }
+  /** Items toggled 🎯 Break in the back office (for Break settings). */
+  breakFlaggedItems() {
+    if (!this.ledger) return [];
+    return Object.entries(this.ledger.bo.items).filter(([, t]) => t && t.isBreak).map(([k, t]) => t.label || k.replace(/^(name|sku|prod):/, ''));
+  }
+  /** Back-office item flags changed — refresh the panel. */
+  itemFlagsChanged(label, isBreak) {
+    // Toggling 🎯 on undoes an earlier "dissolve" (which ignores that product).
+    if (isBreak && label) { const l = String(label).toLowerCase(); this.breakIgnore = this.breakIgnore.filter((p) => !(p && (l.includes(p) || p.includes(l)))); }
+    this._persist(); this.emit('change', { reason: 'break-config' });
+  }
   /** Items ticked ⭐ Priority in the back office (for the Priority modal). */
   priorityFlaggedItems() {
     if (!this.ledger) return [];
@@ -972,7 +987,7 @@ export class QueueEngine extends EventEmitter {
       fulfilled: this.fulfilledSlots().slice(0, 50),
       cancelled: this.cancelledSlots().slice(0, 50),
       stats: this.stats(),
-      config: { priorityItems: this.priorityItems, priorityFlagged: this.priorityFlaggedItems(), breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
+      config: { priorityItems: this.priorityItems, priorityFlagged: this.priorityFlaggedItems(), breakFlagged: this.breakFlaggedItems(), breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
       breaks: this.breakSummaries(),
       offline: this.offlineOrders(),
       lastStreamId: this.ledger ? ((this.ledger.streamList().find((x) => x.endedAt) || {}).id || null) : null,
@@ -1218,11 +1233,14 @@ export class QueueEngine extends EventEmitter {
    *  for that product (when create + autoBreaks). */
   _breakFor(it, create) {
     const text = `${it.name || ''} ${it.sku || ''}`.toLowerCase();
-    if (this.breakIgnore.some((p) => p && text.includes(p))) return null;
+    // Only items toggled 🎯 Break in the back office open breaks automatically
+    // (a name containing "break" no longer does — "Box Break" packs aren't breaks).
+    if (this.breakIgnore.some((p) => p && text.includes(p))) return null; // dissolved = "not a break"
+    const flagged = this._itemFlaggedBreak(it);
     const open = this.breaks.filter((b) => b.status === 'open' && b.match && text.includes(b.match));
     if (open.length) return open.sort((a, b) => b.match.length - a.match.length)[0];
     if (!create || !this.autoBreaks) return null;
-    if (!this.breakKeywords.some((k) => this._hasWord(text, k))) return null;
+    if (!flagged) return null;
     const product = this._productName(it);
     const match = product.toLowerCase();
     const prior = this.breaks.filter((b) => b.match === match).length;

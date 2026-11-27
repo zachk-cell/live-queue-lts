@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (evening) — 🎯 Break toggle
+- **You choose which items are breaks.** In Back office → Inventory & pricing, the new **🎯 Break** column marks a listing as a break. When it sells, its spots open their own break section, with the spot total read from the name (e.g. “(33 Spot)”).
+- **A name with “break” in it no longer opens a break by itself**, so *Box Break* packs stay normal (priority) queue items.
+- Your current DADDY BREAK listings are already toggled on. New break listings need 🎯 switched on before they sell. ⚙ Break settings in the queue lists every toggled item.
+
 ## November 27, 2026 (afternoon) — Product access is live
 - The LTs shop re-authorized the app, and every permission the back office needs is now granted, including Product (price and stock editing).
 - **Inventory synced:** 68 listings with live prices and stock. Today's stock snapshot is saved, so time-to-sell starts counting from here.
