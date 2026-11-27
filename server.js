@@ -103,7 +103,8 @@ const queue = new QueueEngine();
 const ledger = new Ledger();
 queue.ledger = ledger;
 try {
-  ledger.seedFromHistory(queue.history);
+  if (Object.keys(ledger.orders).length && !(ledger.meta && ledger.meta.seedVersion >= 2)) ledger.repairHistorySeed(queue.history);
+  else ledger.seedFromHistory(queue.history);
   if (queue.live && queue.sessionStartedAt && !ledger.streams[String(queue.sessionStartedAt)]) {
     ledger.startStream(String(queue.sessionStartedAt), queue.sessionStartedAt);
   }

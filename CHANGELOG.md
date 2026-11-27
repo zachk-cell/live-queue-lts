@@ -2,6 +2,9 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (later) — Fix: past-stream reports
+- Break orders that carried over from one stream to the next were counted in the **later** stream's imported report. Each order is now credited to the stream it was **placed** in, keeping its latest status. Past reports were corrected automatically.
+
 ## November 27, 2026 — Offline orders, seat labels, reports, back office & metrics
 
 ### Orders are never missed now

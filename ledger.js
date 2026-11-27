@@ -48,6 +48,7 @@ export class Ledger {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     this.orders = {};   // id -> order record
     this.streams = {};  // id -> { id, startedAt, endedAt, breaks, seeded }
+    this.meta = {};     // { seedVersion }
     this.bo = {
       settings: { ...DEFAULT_SETTINGS },
       items: {},        // itemKey -> { cost, consigned, consignee, splitType:'pct'|'fixed', splitValue, notes }
@@ -68,6 +69,7 @@ export class Ledger {
         const j = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8'));
         this.orders = j.orders || {};
         this.streams = j.streams || {};
+        this.meta = j.meta || {};
       }
     } catch (e) { console.warn('[ledger] load failed:', e.message); }
     try {
@@ -86,7 +88,7 @@ export class Ledger {
   }
   flush() {
     clearTimeout(this._timer);
-    try { atomicWrite(LEDGER_FILE, JSON.stringify({ v: 1, orders: this.orders, streams: this.streams })); }
+    try { atomicWrite(LEDGER_FILE, JSON.stringify({ v: 1, meta: this.meta || {}, orders: this.orders, streams: this.streams })); }
     catch (e) { console.warn('[ledger] persist failed:', e.message); }
   }
   saveBo() {
@@ -221,40 +223,76 @@ export class Ledger {
   }
 
   /** One-time seed from the queue's short history (last few streams) so past
-   *  reports exist from day one. Never overwrites orders already on file. */
+   *  reports exist from day one. Never overwrites orders already on file.
+   *  An order can appear in several archived streams (open breaks carry over),
+   *  so each order is credited to the stream it was PLACED in: the stream whose
+   *  window contains its order time, otherwise the earliest stream it appears in. */
   seedFromHistory(history) {
-    let added = 0;
-    for (const h of (history || [])) {
-      const sid = String(h.id || h.startedAt || '');
-      if (!sid) continue;
-      if (!this.streams[sid]) {
-        this.streams[sid] = { id: sid, startedAt: h.startedAt || Number(sid) || null, endedAt: h.endedAt || null, breaks: h.breaks || [], seeded: true };
-      }
-      const groups = [['fulfilled', h.fulfilled], ['unfulfilled', h.unfulfilled], ['cancelled', h.cancelled]];
-      for (const [kind, recs] of groups) {
+    const hist = (history || []).filter((h) => h && (h.id || h.startedAt))
+      .slice().sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)); // oldest first
+    for (const h of hist) {
+      const sid = String(h.id || h.startedAt);
+      if (!this.streams[sid]) this.streams[sid] = { id: sid, startedAt: h.startedAt || Number(sid) || null, endedAt: h.endedAt || null, breaks: h.breaks || [], seeded: true };
+    }
+    const windows = hist.map((h) => ({ sid: String(h.id || h.startedAt), a: h.startedAt || 0, b: h.endedAt || Date.now() }));
+    const homeFor = (t, fallback) => { if (t) { const w = windows.find((x) => t >= x.a && t <= x.b); if (w) return w.sid; } return fallback; };
+    const pick = new Map(); // orderId -> { r, kind, sid, startedAt }
+    for (const h of hist) {
+      const sid = String(h.id || h.startedAt);
+      for (const [kind, recs] of [['fulfilled', h.fulfilled], ['unfulfilled', h.unfulfilled], ['cancelled', h.cancelled]]) {
         for (const r of (recs || [])) {
-          if (!r || r.orderId == null || this.orders[String(r.orderId)]) continue;
-          const items = (r.items || []).map((it) => ({
-            name: String(it.name || 'Item'), productId: '', skuId: '', sku: it.sku || '',
-            qty: Number(it.qty) || 1, price: Number(it.price) || 0, cancelled: !!it.cancelled,
-          }));
-          this.orders[String(r.orderId)] = {
-            id: String(r.orderId),
-            createdAt: r.createdAt || h.startedAt || r.fulfilledAt || r.cancelledAt || Date.now(),
-            approxTime: !r.createdAt,
-            buyerId: String(r.buyerId || ''), buyer: String(r.buyer || 'Buyer'), buyerHandle: '',
-            items, total: Number(r.total) || 0, shippingFee: 0,
-            channel: 'live', streamId: sid, source: 'history',
-            status: kind === 'cancelled' ? 'cancelled' : 'placed',
-            cancelledAt: r.cancelledAt || null, fulfilledAt: r.fulfilledAt || null,
-            recordedAt: Date.now(),
-          };
-          added++;
+          if (!r || r.orderId == null) continue;
+          const id = String(r.orderId);
+          const prev = pick.get(id);
+          // Keep the first (earliest) sighting for placement, but the LATEST
+          // status (a spot unfulfilled in one stream may be fulfilled in the next).
+          if (!prev) pick.set(id, { r, kind, sid, startedAt: h.startedAt, createdAt: r.createdAt || null });
+          else { prev.kind = kind; prev.r = { ...prev.r, ...r, items: (r.items && r.items.length >= (prev.r.items || []).length) ? r.items : prev.r.items }; if (!prev.createdAt && r.createdAt) prev.createdAt = r.createdAt; }
         }
       }
     }
+    let added = 0;
+    for (const [id, p] of pick) {
+      if (this.orders[id]) continue;
+      const r = p.r;
+      const items = (r.items || []).map((it) => ({
+        name: String(it.name || 'Item'), productId: '', skuId: '', sku: it.sku || '',
+        qty: Number(it.qty) || 1, price: Number(it.price) || 0, cancelled: !!it.cancelled,
+      }));
+      this.orders[id] = {
+        id, createdAt: p.createdAt || p.startedAt || r.fulfilledAt || r.cancelledAt || Date.now(),
+        approxTime: !p.createdAt,
+        buyerId: String(r.buyerId || ''), buyer: String(r.buyer || 'Buyer'), buyerHandle: '',
+        items, total: Number(r.total) || 0, shippingFee: 0,
+        channel: 'live', streamId: homeFor(p.createdAt, p.sid), source: 'history',
+        status: p.kind === 'cancelled' ? 'cancelled' : 'placed',
+        cancelledAt: r.cancelledAt || null, fulfilledAt: r.fulfilledAt || null,
+        recordedAt: Date.now(),
+      };
+      added++;
+    }
+    this.meta = { ...(this.meta || {}), seedVersion: 2 };
     if (added) { this.save(); console.log(`[ledger] seeded ${added} orders from stream history`); }
     return added;
+  }
+
+  /** v1 of the history seed credited carried-over break orders to the LATEST
+   *  stream they were archived in. Re-seed those once (nothing else is touched:
+   *  live/offline/imported orders and any later updates on them are kept). */
+  repairHistorySeed(history) {
+    if (this.meta && this.meta.seedVersion >= 2) return 0;
+    const ids = Object.keys(this.orders).filter((id) => this.orders[id].source === 'history');
+    const keep = {}; // preserve status changes made since the first seed
+    for (const id of ids) { const o = this.orders[id]; keep[id] = { status: o.status, cancelledAt: o.cancelledAt, fulfilledAt: o.fulfilledAt }; delete this.orders[id]; }
+    const n = this.seedFromHistory(history);
+    for (const [id, k] of Object.entries(keep)) {
+      const o = this.orders[id]; if (!o) continue;
+      if (k.status === 'cancelled') { o.status = 'cancelled'; o.cancelledAt = o.cancelledAt || k.cancelledAt; }
+      if (k.fulfilledAt && !o.fulfilledAt) o.fulfilledAt = k.fulfilledAt;
+    }
+    this.flush();
+    console.log(`[ledger] history re-seeded (${ids.length} → ${n} orders, credited to the stream they were placed in)`);
+    return n;
   }
 
   // ---------------- back office ----------------
