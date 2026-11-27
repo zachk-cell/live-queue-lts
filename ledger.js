@@ -306,9 +306,10 @@ export class Ledger {
     const cur = this.bo.items[k] || {};
     const next = { ...cur };
     const changes = [];
-    for (const f of ['cost', 'consigned', 'consignee', 'splitType', 'splitValue', 'notes']) {
+    for (const f of ['cost', 'consigned', 'consignee', 'splitType', 'splitValue', 'notes', 'priority']) {
       if (!(f in patch)) continue;
       let v = patch[f];
+      if (f === 'priority') v = !!v;
       if (f === 'cost' || f === 'splitValue') v = (v === '' || v == null) ? null : Math.round(Number(v) * 100) / 100;
       if (f === 'consigned') v = !!v;
       if (f === 'splitType') v = v === 'fixed' ? 'fixed' : 'pct';
@@ -318,6 +319,7 @@ export class Ledger {
       next[f] = v;
     }
     if (!changes.length) return { changed: 0 };
+    if (meta.label) next.label = String(meta.label).slice(0, 200); // display name (not logged)
     this.bo.items[k] = next;
     for (const c of changes) this.log({ kind: 'terms', key: k, label: meta.label || k, ...c });
     this.saveBo();

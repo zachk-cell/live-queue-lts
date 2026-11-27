@@ -241,14 +241,23 @@
   button.livebtn{background:var(--done);border-color:var(--done);color:#04180d;font-weight:800}
   button.livebtn.off{background:#c23b3b;border-color:#c23b3b;color:#fff}
   /* ── Offline orders ── */
-  .offwrap{background:var(--panel);border:1px solid #2c5a77;border-radius:12px;padding:12px 14px;margin:14px 0 4px}
-  .off-day{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:12px 2px 4px;display:flex;gap:8px;align-items:center}
-  .off-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;margin-top:6px;flex-wrap:wrap;font-size:13px;background:var(--panel2)}
+  .offacts{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;text-transform:none;letter-spacing:0}
+  .offacts button{padding:6px 10px;font-size:12px}
+  .off-day{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:10px 4px 4px}
+  .off-row{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;font-size:13px;cursor:pointer;flex-wrap:nowrap;min-width:0}
+  .off-row:hover{border-color:#36405a}
   .off-row.sel{border-color:var(--accent)}
   .off-row.done{opacity:.55}
-  .off-row .oname{font-weight:700}
-  .off-row .oitems{color:#c9d1e3;flex:1 1 260px;min-width:180px}
-  .off-row .oamt{font-weight:700;margin-left:auto}
+  .off-row .cav{font-size:9px;color:var(--muted);transition:transform .12s;flex:0 0 auto}
+  .off-row.open .cav{transform:rotate(90deg)}
+  .off-row .oname{font-weight:700;white-space:nowrap;flex:0 0 auto}
+  .off-row .osum{color:var(--muted);flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .off-row .badge,.off-row .ordno,.off-row .bt{white-space:nowrap;flex:0 0 auto}
+  .off-row .oamt{font-weight:700;white-space:nowrap;flex:0 0 auto}
+  .off-row button{flex:0 0 auto}
+  .off-items{margin:-4px 0 8px 34px;padding:8px 12px;border-left:2px solid var(--line);font-size:13px;color:#c9d1e3}
+  .off-items div{padding:2px 0}
+  @media (max-width:700px){ .off-row .bt,.off-row .ordno{display:none} }
   .off-empty{color:var(--muted);font-size:13px;padding:8px 2px}
   /* ── After-action report card ── */
   .aarcard{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:linear-gradient(90deg,#16233f,#171a21);border:1px solid #2b4d8f;
@@ -429,17 +438,6 @@
     <div id="brk-list"></div>
   </div>
 
-  <div id="offline-admin" class="offwrap">
-    <div class="brkhead">
-      <span class="brkh">🌙 Offline orders</span><span class="brkn" id="off-n"></span><span class="sp"></span>
-      <button class="ghost" onclick="offSelectAll()" title="Select every order still waiting">☑ Select all waiting</button>
-      <button class="primary" id="off-print" onclick="offPrintSelected()" title="Print a label for each selected order">🏷 Print labels</button>
-      <button class="ghost" id="off-done" onclick="offDoneSelected()" title="Mark the selected orders handled (labelled + shipped)">✓ Mark handled</button>
-      <button class="ghost" id="off-showdone" onclick="offToggleDone()">Show handled</button>
-    </div>
-    <div id="off-list"></div>
-  </div>
-
   <div class="sectitle" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span>Active queue — top is next</span>
     <button class="ghost selallb" id="qSelAll" onclick="selectAllQueue()" title="Select every order shown (respects the search filter), then print all their labels at once from the bar at the bottom">☑ Select all</button>
@@ -469,6 +467,18 @@
     <a href="/api/export-skus" style="text-decoration:none" onclick="event.stopPropagation()" title="Download a SKU breakdown — every item sold this stream, quantity, and dollar volume per SKU"><button class="ghost">⬇ Export SKUs</button></a>
   </div>
   <div id="fulfilled"></div>
+
+  <div class="sectitle collapser" id="ohead" onclick="toggleOffSection()" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span class="cav">▾</span><span>🌙 Offline orders</span><span class="secount" id="off-n"></span>
+    <span class="offacts" onclick="event.stopPropagation()">
+      <button class="ghost" onclick="offSelectAll()" title="Select every order still waiting">☑ Select all waiting</button>
+      <button class="primary" id="off-print" onclick="offPrintSelected()" title="Print a label for each selected order">🏷 Print labels</button>
+      <button class="ghost" id="off-done" onclick="offDoneSelected()" title="Mark the selected orders handled (labelled + shipped)">✓ Mark handled</button>
+      <button class="ghost" id="off-showdone" onclick="offToggleDone()">Show handled</button>
+    </span>
+  </div>
+  <div id="off-list"></div>
+
 
   <div class="sectitle collapser" id="chead" onclick="toggleSection('cancelled')" style="display:flex;align-items:center;gap:8px">
     <span class="cav">▾</span><span>Cancelled this stream</span><span class="secount" id="c-count"></span>
@@ -503,8 +513,10 @@
 <div class="modal" id="modal">
   <div class="card">
     <h3>Priority items</h3>
-    <p>Any order containing one of these (matched inside the item name or SKU) jumps to the top of the queue. One per line. Example: <em>break</em>, <em>slab</em>, <em>PSA 10</em>.</p>
+    <p>Priority is triggered by <b>either</b> a keyword below (matched inside the item name or SKU) <b>or</b> an item ticked <b>⭐ Priority</b> in the back office. Keywords, one per line. Example: <em>break</em>, <em>slab</em>, <em>PSA 10</em>.</p>
     <textarea id="pri-input" placeholder="break&#10;slab&#10;box break"></textarea>
+    <p class="small" style="font-size:12.5px;line-height:1.5;margin:10px 0 4px">Keywords are optional — leave this empty to rely only on ticked items.</p>
+    <div id="pri-flagged" style="font-size:12.5px;line-height:1.5;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;color:#c9d1e3"></div>
     <label class="prichk"><input type="checkbox" id="pri-show-chips" onchange="togglePriChips()" checked> Show the active keyword chips on the admin page</label>
     <div class="row">
       <button class="ghost" onclick="closePriority()">Cancel</button>
@@ -909,6 +921,10 @@
   }
   function openPriority(){
     document.getElementById('pri-input').value = (state.config.priorityItems||[]).join('\n');
+    const fl = state.config.priorityFlagged||[];
+    document.getElementById('pri-flagged').innerHTML = fl.length
+      ? `<b>⭐ Ticked in the back office (${fl.length}):</b> ${fl.map(x=>esc(brkShort(x))).join(' · ')}`
+      : 'No items ticked yet. In <b>🔒 Back office → Inventory &amp; pricing</b>, tick <b>⭐ Priority</b> next to any item to make it trigger priority — no keywords needed.';
     applyPriChipsPref();
     document.getElementById('modal').classList.add('open');
   }
@@ -1701,46 +1717,67 @@
   const selOff = new Set();
   let offShowDone = false, offSig = '';
   function _etDay(ms){ try { return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric'}).format(new Date(ms)); } catch { return new Date(ms).toDateString(); } }
+  const offOpen = new Set();
+  let offCollapsed = false; try { offCollapsed = localStorage.getItem('ltsOffCollapsed')==='1'; } catch {}
+  function toggleOffSection(){ offCollapsed = !offCollapsed; try{ localStorage.setItem('ltsOffCollapsed', offCollapsed?'1':'0'); }catch{} offSig=''; renderOffline(); }
+  function offToggleOpen(id, ev){
+    if(ev && ev.target.closest('button,input,a')) return;
+    if(offOpen.has(id)) offOpen.delete(id); else offOpen.add(id);
+    offSig=''; renderOffline();
+  }
   function renderOffline(){
     const all = state.offline || [];
     const waiting = all.filter(o=>!o.doneAt && !o.cancelled);
     const filter = (document.getElementById('search').value||'').toLowerCase().trim();
     const fAl = filter.replace(/[^a-z0-9]/g,'');
-    const sig = JSON.stringify([all, filter, [...selOff], offShowDone]);
+    const sig = JSON.stringify([all, filter, [...selOff], [...offOpen], offShowDone, offCollapsed]);
     if(sig === offSig) return; offSig = sig;
     for(const k of [...selOff]) if(!waiting.some(o=>o.orderId===k)) selOff.delete(k);
     const units = waiting.reduce((n,o)=>n+o.units,0);
-    document.getElementById('off-n').textContent = waiting.length ? `${waiting.length} waiting · ${units} item${units===1?'':'s'}` : (all.length ? 'all handled ✓' : '');
-    document.getElementById('off-print').textContent = selOff.size ? `🏷 Print ${selOff.size} label${selOff.size===1?'':'s'}` : '🏷 Print labels';
+    document.getElementById('off-n').textContent = waiting.length ? `(${waiting.length} waiting · ${units} item${units===1?'':'s'})` : (all.length ? '(all handled ✓)' : '');
+    document.getElementById('ohead').classList.toggle('collapsed', offCollapsed);
+    document.getElementById('off-print').textContent = selOff.size ? `🏷 Print ${selOff.size}` : '🏷 Print labels';
     document.getElementById('off-print').disabled = !selOff.size;
     document.getElementById('off-done').disabled = !selOff.size;
     document.getElementById('off-showdone').textContent = offShowDone ? 'Hide handled' : 'Show handled';
+    const el = document.getElementById('off-list');
+    if(offCollapsed){ el.innerHTML=''; return; }
     const shown = all.filter(o=>(offShowDone || (!o.doneAt && !o.cancelled)))
       .filter(o=>!filter || (o.buyer||'').toLowerCase().includes(filter) || (o.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(o.orderId).toLowerCase().includes(fAl)));
-    const el = document.getElementById('off-list');
-    if(!shown.length){ el.innerHTML = `<div class="off-empty">${all.length ? (filter?'No offline orders match the search.':'Nothing waiting — every offline order is handled.') : 'No offline orders. Anything bought while you\'re not live shows up here.'}</div>`; return; }
+    if(!shown.length){ el.innerHTML = `<div class="empty">${all.length ? (filter?'No offline orders match the search.':'Nothing waiting — every offline order is handled.') : 'No offline orders. Anything bought while you\'re not live shows up here.'}</div>`; return; }
     let html = '', day = '';
     for(const o of shown){
       const d = _etDay(o.createdAt);
       if(d !== day){ day = d; html += `<div class="off-day">${esc(d)}</div>`; }
-      const items = o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.cancelled?' <span class="badge hold">cancelled</span>':''}`).join(', ');
-      const badges = (o.cancelRequested?'<span class="badge hold">⚠ CANCEL REQ</span>':'') + (o.onHold?'<span class="badge onhold">⏸ ON HOLD</span>':'')
-        + (o.breakSpots?`<span class="badge bother" title="This order also bought ${o.breakSpots} spot(s) in ${esc(o.breakTitle)} — those are in the break above">🎟 + ${o.breakSpots} break spot${o.breakSpots===1?'':'s'}</span>`:'')
-        + (o.cancelled?'<span class="badge hold">CANCELLED</span>':'');
       const live = !o.doneAt && !o.cancelled;
-      html += `<div class="off-row${selOff.has(o.orderId)?' sel':''}${o.doneAt?' done':''}">`
-        + (live?`<input type="checkbox" ${selOff.has(o.orderId)?'checked':''} onchange="offSel('${esc(o.orderId)}')">`:'<span style="width:13px"></span>')
-        + `<span class="oname">${esc(o.buyer)}</span>${o.buyerHandle?`<span class="bh">@${esc(o.buyerHandle)}</span>`:''}`
-        + `<span class="oitems">${items}</span>${badges}`
+      const open = offOpen.has(o.orderId);
+      const first = (o.items.find(i=>!i.cancelled) || o.items[0] || {name:''});
+      const more = o.items.length - 1;
+      const sum = `${o.units} item${o.units===1?'':'s'} · ${esc(brkShort(first.name))}${more>0?` + ${more} more`:''}`;
+      const badges = (o.cancelRequested?'<span class="badge hold">⚠ CANCEL REQ</span>':'') + (o.onHold?'<span class="badge onhold">⏸ ON HOLD</span>':'')
+        + (o.breakSpots?`<span class="badge bother" title="Also bought ${o.breakSpots} spot(s) in ${esc(o.breakTitle)} — those are in the break above">🎟 +${o.breakSpots} break</span>`:'')
+        + (o.cancelled?'<span class="badge hold">CANCELLED</span>':'');
+      html += `<div class="off-row${selOff.has(o.orderId)?' sel':''}${o.doneAt?' done':''}${open?' open':''}" onclick="offToggleOpen('${esc(o.orderId)}', event)" title="Click to ${open?'hide':'show'} the items">`
+        + (live?`<input type="checkbox" ${selOff.has(o.orderId)?'checked':''} onchange="offSel('${esc(o.orderId)}')">`:'<span style="width:13px;flex:0 0 auto"></span>')
+        + `<span class="cav">▶</span><span class="oname">${esc(o.buyer)}</span>`
+        + `<span class="osum">${sum}</span>${badges}`
         + `<span class="ordno">#${esc(shortId(o.orderId))}</span><span class="bt">${esc(fmtETclock(o.createdAt))}</span>`
         + `<span class="oamt">${money(o.total)}</span>`
         + (!o.cancelled?`<button class="undob" title="Print this order's label" onclick="offPrint(['${esc(o.orderId)}'])">🏷</button>`:'')
         + (live?`<button class="undob bful" title="Mark handled (labelled + shipped)" onclick="offDone(['${esc(o.orderId)}'],true)">✓</button>`
-               :(o.doneAt?`<button class="undob" title="Undo — back to waiting" onclick="offDone(['${esc(o.orderId)}'],false)">↩ Undo</button>`:''))
+               :(o.doneAt?`<button class="undob" title="Undo — back to waiting" onclick="offDone(['${esc(o.orderId)}'],false)">↩</button>`:''))
         + `</div>`;
+      if(open){
+        html += `<div class="off-items">`
+          + (o.buyerHandle?`<div class="muted">@${esc(o.buyerHandle)}</div>`:'')
+          + o.items.map(i=>`<div>${i.qty}× ${esc(i.name)}${i.price?` <span class="muted">· ${money(i.price*i.qty)}</span>`:''}${i.cancelled?' <span class="badge hold">cancelled</span>':''}</div>`).join('')
+          + `<div class="muted" style="margin-top:4px">Order #${esc(o.orderId)} · ${esc(fmtETclock(o.createdAt))} ET${o.doneAt?' · handled '+esc(fmtETclock(o.doneAt)):''}</div></div>`;
+      }
     }
     el.innerHTML = html;
   }
+  // Short display name: drop a trailing " - Default" variant.
+  function brkShort(n){ return String(n||'').replace(/\s*-\s*default(\s+title)?\s*$/i,''); }
   function offSel(id){ if(selOff.has(id)) selOff.delete(id); else selOff.add(id); offSig=''; renderOffline(); }
   function offSelectAll(){
     const waiting = (state.offline||[]).filter(o=>!o.doneAt && !o.cancelled).map(o=>o.orderId);
@@ -1770,7 +1807,9 @@
   function renderAarCard(){
     const el = document.getElementById('aar-card');
     const id = state.lastStreamId;
-    if(!id){ el.style.display='none'; return; }
+    // Only between streams: once a new live starts the banner gets out of the way
+    // (every report stays one click away under 📋 Reports in the header).
+    if(!id || (state.stats||{}).live){ el.style.display='none'; el._id=null; return; }
     if(el._id === id) return;
     el._id = id;
     const when = (()=>{ try { return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(Number(id))); } catch { return ''; } })();

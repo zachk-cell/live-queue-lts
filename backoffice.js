@@ -158,7 +158,9 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
   app.post('/api/bo/terms', requireAuth, requireBo, (req, res) => {
     const b = req.body || {};
     if (!b.key) return res.status(400).json({ ok: false, error: 'missing item' });
-    res.json({ ok: true, ...ledger.setItemTerms(b.key, b.patch || {}, { label: b.label }) });
+    const r = ledger.setItemTerms(b.key, b.patch || {}, { label: b.label });
+    if (b.patch && 'priority' in b.patch) queue.recomputePriority(); // ⭐ tick takes effect on the live queue now
+    res.json({ ok: true, ...r });
   });
   app.post('/api/bo/settings', requireAuth, requireBo, (req, res) => res.json({ ok: true, ...ledger.setSettings(req.body || {}), settings: ledger.bo.settings }));
   app.post('/api/bo/sync', requireAuth, requireBo, async (_req, res) => {

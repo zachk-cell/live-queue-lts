@@ -52,6 +52,7 @@
   .ed .pen{background:transparent;border:none;color:var(--text2);padding:2px 4px;font-size:13px}
   .ed .pen:hover{color:var(--accent)}
   .ed .pen:disabled{opacity:.3;cursor:not-allowed}
+  .prichk{width:16px;height:16px;accent-color:#ffb020;cursor:pointer}
   .ed input{width:90px;padding:4px 6px}
   .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
@@ -231,12 +232,12 @@ function renderInv(){
   const synced = (cat.products||[]).length;
   const scopeMsg = cat.error && /scope|permission|unauthor|denied|not allowed|105005|36009004/i.test(cat.error);
   let banner = '';
-  if(!synced) banner = `<div class="banner warn">📦 <b>Waiting for product access.</b> Live stock and prices need the TikTok <b>Product</b> permission, which the streamer still has to add to the app. Until then you can already enter <b>costs</b> and <b>consignment</b> for every item that has sold (listed below) — they apply to past and future sales right away.${cat.error?`<br><span class="small" style="opacity:.8">Last sync: ${esc(cat.error)}</span>`:''}</div>`;
+  if(!synced) banner = `<div class="banner warn">📦 <b>Waiting for product access.</b> Live stock and prices need the TikTok <b>Product</b> permission. It's been added to the app — once the <b>LTs shop re-authorizes</b> the app, this fills in automatically (or hit ↻ Sync catalog). Until then you can already enter <b>costs</b> and <b>consignment</b> for every item that has sold (listed below) — they apply to past and future sales right away.${cat.error?`<br><span class="small" style="opacity:.8">Last sync: ${esc(cat.error)}</span>`:''}</div>`;
   else banner = `<div class="banner ok">📦 Catalog synced ${esc(fmtD(cat.syncedAt,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} — ${int(synced)} products. Stock is re-synced every 6 hours (that history powers time-to-sell).${cat.error?`<br><span class="small">Latest sync failed: ${esc(cat.error)}</span>`:''}</div>`;
   const rows = invRows();
   const q = invQ.toLowerCase();
   const shown = rows.filter(r=>(!q || r.label.toLowerCase().includes(q) || String(r.sellerSku||'').toLowerCase().includes(q))
-    && (invF==='all' || (invF==='cons' && r.t.consigned) || (invF==='unc' && !r.t.consigned && (r.t.cost==null||r.t.cost==='')) || (invF==='low' && r.stock!=null && r.stock<=2)));
+    && (invF==='all' || (invF==='pri' && r.t.priority) || (invF==='cons' && r.t.consigned) || (invF==='unc' && !r.t.consigned && (r.t.cost==null||r.t.cost==='')) || (invF==='low' && r.stock!=null && r.stock<=2)));
   const nUnc = rows.filter(r=>!r.t.consigned && (r.t.cost==null||r.t.cost==='')).length;
   const s = D.settings;
   const unitNet = (r)=>{
@@ -249,13 +250,14 @@ function renderInv(){
   $('main').innerHTML = banner + `<div class="card"><h2>Inventory & pricing <span class="sub">${synced?'live TikTok catalog':'items seen in sales'} · ${int(rows.length)} items</span></h2>
     <div class="row" style="margin-bottom:10px">
       <input id="invq" placeholder="Search item or SKU…" value="${esc(invQ)}" style="flex:1;min-width:200px">
-      <div class="seg" id="invf">${[['all','All'],['unc','No cost yet ('+nUnc+')'],['cons','Consigned'],['low','Low stock']].map(([k,l])=>`<button data-f="${k}" class="${invF===k?'on':''}">${l}</button>`).join('')}</div>
+      <div class="seg" id="invf">${[['all','All'],['pri','⭐ Priority ('+rows.filter(r=>r.t.priority).length+')'],['unc','No cost yet ('+nUnc+')'],['cons','Consigned'],['low','Low stock']].map(([k,l])=>`<button data-f="${k}" class="${invF===k?'on':''}">${l}</button>`).join('')}</div>
       <button onclick="syncCatalog()" title="Pull products, prices and stock from TikTok">↻ Sync catalog</button>
     </div>
-    <div class="scroll"><table><thead><tr><th>Item</th><th class="n">Price</th><th class="n">Stock</th><th class="n">Your cost</th><th>Consignment</th><th class="n">Sold</th><th class="n">Sold $</th><th class="n" title="Price − TikTok fee − commission − cost (or consignee share). Shipping not included.">Net / unit</th></tr></thead><tbody>
+    <div class="scroll"><table><thead><tr><th title="Tick to make this item trigger PRIORITY in the live queue whenever it's ordered — no keywords needed">⭐ Priority</th><th>Item</th><th class="n">Price</th><th class="n">Stock</th><th class="n">Your cost</th><th>Consignment</th><th class="n">Sold</th><th class="n">Sold $</th><th class="n" title="Price − TikTok fee − commission − cost (or consignee share). Shipping not included.">Net / unit</th></tr></thead><tbody>
     ${shown.map(r=>{
       const nu = unitNet(r);
       return `<tr>
+        <td style="text-align:center"><input type="checkbox" class="prichk" ${r.t.priority?'checked':''} title="Orders containing this item jump up the queue as PRIORITY" onchange="togglePri('${esc(r.key)}', this.checked)"></td>
         <td><div style="font-weight:600">${esc(r.label)}</div><div class="small muted">${r.sellerSku?'SKU '+esc(r.sellerSku):''}${r.status&&r.status!=='ACTIVATE'?' · '+esc(r.status.toLowerCase()):''}</div></td>
         <td class="n">${editCell(r,'price')}</td>
         <td class="n">${editCell(r,'stock')}</td>
@@ -264,9 +266,9 @@ function renderInv(){
           <button class="sm ghost" onclick="editCons('${esc(r.key)}')">✎</button></td>
         <td class="n">${int(r.s.units)}</td><td class="n">${money0(r.s.gross)}</td>
         <td class="n">${nu==null?'<span class="pill unc" title="Enter a cost to see margin">—</span>':`<span style="color:${nu<0?'var(--bad)':'var(--text)'}">${money(nu)}</span>`}</td></tr>`;
-    }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
+    }).join('') || '<tr><td colspan="9" class="muted">Nothing matches.</td></tr>'}
     </tbody></table></div>
-    <p class="small muted" style="margin-top:10px">✎ Price and stock change the live TikTok listing — click the pencil, type the new value, press Save, then confirm. Every change (and every cost / consignment edit) is recorded in the Changelog.</p></div>`;
+    <p class="small muted" style="margin-top:10px">⭐ <b>Priority</b>: tick an item and every order containing it is treated as PRIORITY in the live queue — instantly, no keywords needed (keywords in the queue's ⭐ Priority items still work too, and can be left empty). ✎ Price and stock change the live TikTok listing — click the pencil, type the new value, press Save, then confirm. Every change (and every cost / consignment edit) is recorded in the Changelog.</p></div>`;
   $('invq').oninput = (e)=>{ invQ = e.target.value; const pos=e.target.selectionStart; renderInv(); const i=$('invq'); i.focus(); i.setSelectionRange(pos,pos); };
   $('invf').onclick = (e)=>{ const f = e.target.dataset.f; if(f){ invF=f; renderInv(); } };
   window.__rows = Object.fromEntries(rows.map(r=>[r.key, r]));
@@ -299,6 +301,12 @@ window.saveEdit = async ()=>{
   const res = await api(field==='price'?'/api/bo/price':'/api/bo/stock', {productId:r.productId, skuId:r.skuId, [field==='price'?'price':'qty']: val});
   if(!res.ok) alert('TikTok didn\'t accept the change: ' + (res.error||'unknown error') + (res.needsScope?'\n\nThe TikTok Product permission still needs to be added to the app.':''));
   editing = null; await reloadData();
+};
+window.togglePri = async (key, on)=>{
+  const r = window.__rows[key];
+  const res = await api('/api/bo/terms', {key, label: r ? r.label : key, patch: {priority: !!on}});
+  if(!res.ok) alert(res.error||'Save failed');
+  await reloadData();
 };
 window.editCons = (key)=>{
   const r = window.__rows[key]; const t = r.t;

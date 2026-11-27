@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+import { termsFromMap } from './analytics.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const STATE_FILE = path.join(DATA_DIR, 'queue-state.json');
@@ -387,13 +388,34 @@ export class QueueEngine extends EventEmitter {
       }));
   }
 
+  /** Priority is triggered EITHER by a keyword match (Priority items list) OR by
+   *  the item being ticked ⭐ Priority in the back office inventory (matched by
+   *  its TikTok SKU / product id, falling back to the exact item name) — so no
+   *  keyword matching is needed for items you tick. */
   _isPriorityOrder(items) {
+    return (items || []).some((it) => this._itemFlaggedPriority(it) || this._keywordPriority(it));
+  }
+  _keywordPriority(it) {
     if (!this.priorityItems.length) return false;
-    return (items || []).some((it) => {
-      const name = (it.name || '').toLowerCase();
-      const sku = (it.sku || '').toLowerCase();
-      return this.priorityItems.some((p) => p && (name.includes(p) || sku.includes(p)));
-    });
+    const name = (it.name || '').toLowerCase();
+    const sku = (it.sku || '').toLowerCase();
+    return this.priorityItems.some((p) => p && (name.includes(p) || sku.includes(p)));
+  }
+  _itemFlaggedPriority(it) {
+    if (!this.ledger || !it) return false;
+    return !!termsFromMap(this.ledger.bo.items, it).priority;
+  }
+  /** Items ticked ⭐ Priority in the back office (for the Priority modal). */
+  priorityFlaggedItems() {
+    if (!this.ledger) return [];
+    return Object.entries(this.ledger.bo.items).filter(([, t]) => t && t.priority).map(([k, t]) => t.label || k.replace(/^(name|sku|prod):/, ''));
+  }
+  /** Re-evaluate priority on everything still queued (after a ⭐ tick changes). */
+  recomputePriority() {
+    for (const o of this.orders.values()) if (o.status === 'queued') o.hasPriority = this._isPriorityOrder(o.items);
+    this._markTopReached();
+    this._persist();
+    this.emit('change', { reason: 'priority-config' });
   }
 
   /** Ingest an order. Merges into the buyer's open slot if one exists. */
@@ -950,7 +972,7 @@ export class QueueEngine extends EventEmitter {
       fulfilled: this.fulfilledSlots().slice(0, 50),
       cancelled: this.cancelledSlots().slice(0, 50),
       stats: this.stats(),
-      config: { priorityItems: this.priorityItems, breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
+      config: { priorityItems: this.priorityItems, priorityFlagged: this.priorityFlaggedItems(), breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
       breaks: this.breakSummaries(),
       offline: this.offlineOrders(),
       lastStreamId: this.ledger ? ((this.ledger.streamList().find((x) => x.endedAt) || {}).id || null) : null,

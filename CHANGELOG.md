@@ -2,6 +2,12 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (night) — Tidier offline orders, ⭐ priority ticks
+- **🌙 Offline orders moved** below "Fulfilled this stream". Each order is now one line (buyer, item count, first item, total) and **clicking it expands** the full item list, so nothing wraps.
+- **The after-action report banner hides as soon as you Go Live**, so it's out of the way during the stream. Every past report is always under **📋 Reports** in the header.
+- **⭐ Priority tick:** in Back office → Inventory & pricing, tick ⭐ next to any item and every order containing it becomes PRIORITY in the live queue. It's matched to the exact TikTok item, so no keyword matching is needed.
+- Keywords still work alongside, or you can leave them empty. The ⭐ Priority items window lists the ticked items, and every tick is logged in the Changelog.
+
 ## November 27, 2026 (evening) — TikTok permissions check
 - **Back office → Settings → Check TikTok permissions.** Shows which API permissions the LTs shop granted the app, and proves each with a harmless read: orders, products, price/stock editing, plus optional finance, shipping and returns. It never changes anything.
 

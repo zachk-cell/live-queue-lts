@@ -151,7 +151,7 @@
         <ul>
           <li><b>No typing.</b> Orders ingest automatically from TikTok while you're live.</li>
           <li><b>One slot per buyer.</b> A buyer who orders again before you fulfill them merges into their existing slot instead of getting re-queued.</li>
-          <li><b>Item-driven priority.</b> An order containing a configured priority item is staggered up the queue — woven in every other slot ahead of regulars, without overtaking whoever's at the top.</li>
+          <li><b>Item-driven priority.</b> An order containing a priority item is staggered up the queue — woven in every other slot ahead of regulars, without overtaking whoever's at the top. An item counts as priority if it matches a <b>keyword</b> in ⭐ Priority items <b>or</b> is ticked <b>⭐ Priority</b> in the back office inventory (no keywords needed).</li>
           <li><b>Always listening.</b> While you're live, orders build the queue. While you're offline, orders are still captured — break spots go to their break, everything else to <b>Offline orders</b>.</li>
           <li><b>Nothing is ever lost.</b> Every order is kept permanently in the sales history that powers reports, exports and metrics.</li>
         </ul>
@@ -390,7 +390,7 @@
 
   <section id="offline">
     <h2><span class="num">14</span> Offline orders 🌙</h2>
-    <p>Anything bought while you're <b>not live</b> lands in <b>🌙 Offline orders</b> (break spots go to their break instead). Check it once a day:</p>
+    <p>Anything bought while you're <b>not live</b> lands in <b>🌙 Offline orders</b>, just below <b>Fulfilled this stream</b> (break spots go to their break instead). Each order is one tidy line — buyer, item count, total — and <b>clicking it expands</b> the full item list. Check it once a day:</p>
     <ol class="steps">
       <li>Orders are grouped by day, newest first. Cancel / on-hold flags show just like the queue.</li>
       <li>Tick orders (or <span class="pill">☑ Select all waiting</span>) and hit <span class="pill">🏷 Print labels</span> — one label per order, flagged <b>OFFLINE ORDER</b> with the items listed.</li>
@@ -424,7 +424,7 @@
       <li><b>Own stock vs consignment</b> shown separately (gross, paid to consignees, net to us), with a per-consignee table.</li>
       <li>Every unique buyer with their order numbers, items and total spend; items sold; sales by hour; breaks; cancellations.</li>
     </ul>
-    <p>Open it from the <span class="pill">📋 View prior stream after-action report</span> box on the panel, or <span class="pill">📋 Reports</span> in the header for every past stream (kept permanently). Each report exports to <b>⬇ Excel</b> (formatted workbook) or <b>⬇ PDF</b> (print → Save as PDF).</p>
+    <p>Open it from the <span class="pill">📋 View prior stream after-action report</span> box on the panel — it shows between streams and <b>hides as soon as you Go Live</b> so it's out of the way — or any time from <span class="pill">📋 Reports</span> in the header, which lists every past stream (kept permanently). Each report exports to <b>⬇ Excel</b> (formatted workbook) or <b>⬇ PDF</b> (print → Save as PDF).</p>
     <div class="call warn"><span class="lbl">Don't forget</span>Always <b>End Live</b> when you're done — that's what closes the stream's report. If you leave a session open, the next Go Live archives the leftovers for you.</div>
   </section>
 
@@ -433,6 +433,7 @@
     <p>The <span class="pill">🔒 Back office</span> holds the money side and has its <b>own password</b>, separate from the queue login (created on first use, or set in Render as <code>BACKOFFICE_PASSWORD</code>). It auto-locks after 12 hours.</p>
     <div class="grid2">
       <div class="card"><h3>📦 Inventory &amp; pricing</h3><p>Every item with its price, stock, <b>your cost</b>, consignment terms, units sold and net per unit. Price and stock change the <b>live TikTok listing</b>, so they're deliberate: ✎ → new value → Save → confirm. Needs the TikTok <b>Product</b> permission — until the streamer adds it, costs and consignment still work for every item that has sold.</p></div>
+      <div class="card"><h3>⭐ Priority tick</h3><p>Tick <b>⭐ Priority</b> next to any item in Inventory &amp; pricing and every order containing it is treated as PRIORITY in the live queue — instantly, matched by the exact TikTok item, so no keyword matching. Keywords still work alongside (or leave them empty). Ticks are logged in the Changelog.</p></div>
       <div class="card"><h3>Consignment</h3><p>Mark any item (or every variant of a product) as consigned, name the consignee and their share — a % of the sale or a fixed $ per unit. Terms are stamped onto each sale as it happens, so changing them later never rewrites past payouts.</p></div>
       <div class="card"><h3>💵 Profit &amp; exports</h3><p>Profit for any range (today → all time, or custom), live + offline combined, live only, offline only, or live vs offline side by side — grouped by stream, day, week, month, quarter or year. Download it all as a formatted Excel workbook.</p></div>
       <div class="card"><h3>📈 Sales metrics</h3><p>Best days and hours (with a day × hour heat map), sales by month, top spenders, best sellers, price points, time to sell, consignment profitability and time to sell, and live vs offline.</p></div>

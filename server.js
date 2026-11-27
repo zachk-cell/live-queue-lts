@@ -118,6 +118,8 @@ try {
     if (o.status === 'fulfilled' || o.offlineDoneAt) ledger.markFulfilled(o.id, o.fulfilledAt || o.offlineDoneAt);
   }
 } catch (e) { console.warn('[ledger] seed failed:', e.message); }
+// ⭐ items ticked in the back office now count toward priority (ledger attached).
+try { queue.recomputePriority(); } catch (e) { console.warn('[queue] priority recompute failed:', e.message); }
 const flushAll = () => { try { ledger.flush(); ledger.flushBo(); } catch { /* ignore */ } };
 process.on('SIGTERM', () => { flushAll(); process.exit(0); });
 process.on('SIGINT', () => { flushAll(); process.exit(0); });
