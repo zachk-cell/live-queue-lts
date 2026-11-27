@@ -103,7 +103,7 @@
     <div class="badges-top">
       <span class="tb">TikTok Shop</span>
       <span class="tb">Eastern time (EST/EDT)</span>
-      <span class="tb">Session-based</span>
+      <span class="tb">Always listening</span>
     </div>
   </div>
 </header>
@@ -123,9 +123,14 @@
       <li><a href="#clips">10 · Stream Clips</a></li>
       <li><a href="#find">11 · Paging &amp; search</a></li>
       <li><a href="#discord">12 · Discord &amp; mods</a></li>
-      <li><a href="#wrap">13 · Wrapping up</a></li>
-      <li><a href="#rules">14 · Golden rules</a></li>
-      <li><a href="#fixes">15 · Quick fixes</a></li>
+      <li><a href="#breaks">13 · Breaks &amp; labels</a></li>
+      <li><a href="#offline">14 · Offline orders</a></li>
+      <li><a href="#chat">15 · #1 buyer chat</a></li>
+      <li><a href="#wrap">16 · End Live &amp; reports</a></li>
+      <li><a href="#backoffice">17 · Back office</a></li>
+      <li><a href="#rules">18 · Golden rules</a></li>
+      <li><a href="#fixes">19 · Quick fixes</a></li>
+      <li><a href="#new">20 · What's new</a></li>
     </ol>
   </nav>
 
@@ -147,7 +152,8 @@
           <li><b>No typing.</b> Orders ingest automatically from TikTok while you're live.</li>
           <li><b>One slot per buyer.</b> A buyer who orders again before you fulfill them merges into their existing slot instead of getting re-queued.</li>
           <li><b>Item-driven priority.</b> An order containing a configured priority item is staggered up the queue — woven in every other slot ahead of regulars, without overtaking whoever's at the top.</li>
-          <li><b>Session-based.</b> Nothing ingests until you hit <span class="pill go">● Go Live</span>.</li>
+          <li><b>Always listening.</b> While you're live, orders build the queue. While you're offline, orders are still captured — break spots go to their break, everything else to <b>Offline orders</b>.</li>
+          <li><b>Nothing is ever lost.</b> Every order is kept permanently in the sales history that powers reports, exports and metrics.</li>
         </ul>
       </div>
     </div>
@@ -175,7 +181,7 @@
       <li><b>Runs a pre-live backfill.</b> It quietly pulls in any orders placed in roughly the <b>15 minutes before</b> you went live, so a late start doesn't miss early buyers. This runs in the background — going live stays instant, and the orders stream in as they're fetched.</li>
     </ul>
     <div class="call tip"><span class="lbl">Why the backfill matters</span>People start buying the second you go on. If you were a few minutes late hitting <b>Go Live</b>, those orders still land in the queue. The backfill is <b>idempotent</b> — it only adds orders that aren't already there and are still unshipped, so it can <b>never</b> create duplicates.</div>
-    <div class="call warn"><span class="lbl">Heads up</span>While you're <b>offline</b> (before Go Live / after End Live) incoming orders are <b>ignored</b>, not queued. Only orders placed during a live session — plus that 15-minute pre-live window — enter the board.</div>
+    <div class="call key"><span class="lbl">Offline orders</span>While you're <b>offline</b>, orders are still captured (checked every 30 seconds): <b>break spots</b> go into their break and <b>everything else</b> lands in <b>🌙 Offline orders</b>. When you hit Go Live, any offline order from the last ~15 minutes that hasn't been handled moves into the live queue — same as the pre-live backfill always did. Older offline orders stay in their own list.</div>
   </section>
 
   <section id="board">
@@ -363,52 +369,120 @@
     <div class="call tip"><span class="lbl">Note</span>The web dashboard is always the primary control surface — Discord mirrors it so mods and buyers can follow along and mods can help from their phone.</div>
   </section>
 
+  <section id="breaks">
+    <h2><span class="num">13</span> Breaks &amp; labels 🎟</h2>
+    <p>Any item with a break word in its name (default: <b>break</b>) opens a <b>break</b> automatically and stays <b>out of the running queue</b>, so a 40-spot break never clogs the board. Regular items in the same order still queue as normal, and both sides are flagged so nothing gets missed.</p>
+    <h3>Rounds &amp; spots</h3>
+    <ul>
+      <li>Breaks are ripped <b>in the order received</b> — no combining. Each entry shows its spot number.</li>
+      <li>If the name includes a spot count (e.g. <b>(33 Spot)</b>) the break runs in <b>back-to-back rounds</b> of exactly that many spots. An order that runs past the end of a round is split — the overflow becomes the first spots of the next round (shown as <b>part 1/2 · rest in R2</b>).</li>
+      <li>Use <span class="pill">✎ Edit</span> to set or change the total spots, <span class="pill">✓ Round N done</span> to clear a whole round, or tick spots and <span class="pill">✓ Fulfil selected</span>. Every fulfilled spot can be undone from the Fulfilled list.</li>
+      <li>Open breaks with spots left <b>carry over</b> when you End Live — numbering continues next stream.</li>
+    </ul>
+    <h3>Labels — one per seat, plus one shipping label per order</h3>
+    <div class="grid2">
+      <div class="card"><h3>Seat labels</h3><p>Every seat gets its own label: buyer name, <b>SEAT 1 OF 3</b>, <b>SEAT 2 OF 3</b>…, the break, the round + spot number and the order number.</p></div>
+      <div class="card"><h3>Shipping label</h3><p>Each order number gets one extra <b>SHIPPING LABEL</b>: buyer name, order number and how many items are in the order (break seats + any other items).</p></div>
+    </div>
+    <div class="call key"><span class="lbl">The math</span>Labels = <b>seats + orders</b>. 33 seats bought by 33 people = 66 labels; one person buying all 33 seats in one order = 34. If an order's seats run across two rounds, its shipping label prints with the round that holds its <b>last</b> seat — never twice, never missed.</div>
+    <p>The buttons show the exact count before you print: <span class="pill">🏷 All labels (18)</span>, <span class="pill">🏷 Round labels (12)</span>, and <span class="pill">🏷 3</span> on each row (that order's seats + its shipping label).</p>
+  </section>
+
+  <section id="offline">
+    <h2><span class="num">14</span> Offline orders 🌙</h2>
+    <p>Anything bought while you're <b>not live</b> lands in <b>🌙 Offline orders</b> (break spots go to their break instead). Check it once a day:</p>
+    <ol class="steps">
+      <li>Orders are grouped by day, newest first. Cancel / on-hold flags show just like the queue.</li>
+      <li>Tick orders (or <span class="pill">☑ Select all waiting</span>) and hit <span class="pill">🏷 Print labels</span> — one label per order, flagged <b>OFFLINE ORDER</b> with the items listed.</li>
+      <li>Pack and ship, then <span class="pill">✓ Mark handled</span>. Handled orders hide away; <span class="pill">Show handled</span> brings them back (and lets you <b>↩ Undo</b>) for 7 days.</li>
+    </ol>
+    <div class="call tip"><span class="lbl">Mixed orders</span>If an offline order also bought break spots, the row shows <b>🎟 + N break spots</b> — the spots are in the break, the rest is here.</div>
+  </section>
+
+  <section id="chat">
+    <h2><span class="num">15</span> #1 buyer chat 💬</h2>
+    <p>The <b>💬 #1 buyer chat</b> box (bottom-right of the panel) reads the TikTok LIVE chat and shows <b>only messages from whoever is #1 in the queue</b> — so in a busy chat you can instantly see what the person being ripped is saying. <span class="pill">Show all chat</span> flips to the full feed.</p>
+    <ul>
+      <li>Set the stream's TikTok <b>@username</b> once with <span class="pill">@ Set username</span>. Chat connects automatically on Go Live and disconnects on End Live.</li>
+      <li>It's <b>read-only</b> — it never posts anything.</li>
+      <li>TikTok's official shop API has no chat access, so this uses an unofficial reader. If TikTok changes something it may show <b>disconnected</b> — hit <span class="pill">↻ Reconnect</span>. Nothing else in the queue depends on it.</li>
+    </ul>
+  </section>
+
   <section id="wrap">
-    <h2><span class="num">13</span> Wrapping up — End Live</h2>
+    <h2><span class="num">16</span> End Live &amp; after-action reports 📋</h2>
     <p>When the stream is over, hit <span class="pill end">■ End Live</span> and confirm. This:</p>
     <ul>
-      <li>Archives the <b>entire stream</b> — fulfilled, cancelled, <b>and anything still unfulfilled</b> — to <b>Past streams</b>, so nothing is silently lost.</li>
-      <li>Clears the board and <b>stops new orders</b> from entering.</li>
-      <li><b>Freezes</b> the Stream Clips timer (start time and clips are kept and stay copyable).</li>
+      <li>Archives the <b>entire stream</b> (fulfilled, cancelled and anything still unfulfilled) and clears the board. Open breaks with spots left carry over.</li>
+      <li><b>Freezes</b> the Stream Clips timer (start time and clips are kept).</li>
+      <li>Builds the stream's <b>after-action report</b> and offers to open it straight away.</li>
     </ul>
-    <p>Afterward you can review or export any past stream:</p>
+    <h3>The after-action report</h3>
     <ul>
-      <li><span class="pill">🗂 Past streams ↗</span> keeps the last handful of streams with their counts and value.</li>
-      <li><span class="pill">⬇ Export CSV</span> downloads a spreadsheet — a summary by buyer, every fulfilled order, plus the cancelled and any unfulfilled orders — for shipping and reconciliation.</li>
+      <li>Headline numbers: gross sales, estimated net revenue, orders, unique buyers, units, average order.</li>
+      <li>A revenue breakdown: TikTok fee, streamer commission, shipping (estimate), cost of goods and consignee payouts → net.</li>
+      <li><b>Own stock vs consignment</b> shown separately (gross, paid to consignees, net to us), with a per-consignee table.</li>
+      <li>Every unique buyer with their order numbers, items and total spend; items sold; sales by hour; breaks; cancellations.</li>
     </ul>
-    <div class="call warn"><span class="lbl">Don't forget</span>Always <b>End Live</b> when you're done. If you leave a session open, the next Go Live will archive the leftovers for you — but ending cleanly keeps your Past streams and averages accurate.</div>
+    <p>Open it from the <span class="pill">📋 View prior stream after-action report</span> box on the panel, or <span class="pill">📋 Reports</span> in the header for every past stream (kept permanently). Each report exports to <b>⬇ Excel</b> (formatted workbook) or <b>⬇ PDF</b> (print → Save as PDF).</p>
+    <div class="call warn"><span class="lbl">Don't forget</span>Always <b>End Live</b> when you're done — that's what closes the stream's report. If you leave a session open, the next Go Live archives the leftovers for you.</div>
+  </section>
+
+  <section id="backoffice">
+    <h2><span class="num">17</span> Back office 🔒</h2>
+    <p>The <span class="pill">🔒 Back office</span> holds the money side and has its <b>own password</b>, separate from the queue login (created on first use, or set in Render as <code>BACKOFFICE_PASSWORD</code>). It auto-locks after 12 hours.</p>
+    <div class="grid2">
+      <div class="card"><h3>📦 Inventory &amp; pricing</h3><p>Every item with its price, stock, <b>your cost</b>, consignment terms, units sold and net per unit. Price and stock change the <b>live TikTok listing</b>, so they're deliberate: ✎ → new value → Save → confirm. Needs the TikTok <b>Product</b> permission — until the streamer adds it, costs and consignment still work for every item that has sold.</p></div>
+      <div class="card"><h3>Consignment</h3><p>Mark any item (or every variant of a product) as consigned, name the consignee and their share — a % of the sale or a fixed $ per unit. Terms are stamped onto each sale as it happens, so changing them later never rewrites past payouts.</p></div>
+      <div class="card"><h3>💵 Profit &amp; exports</h3><p>Profit for any range (today → all time, or custom), live + offline combined, live only, offline only, or live vs offline side by side — grouped by stream, day, week, month, quarter or year. Download it all as a formatted Excel workbook.</p></div>
+      <div class="card"><h3>📈 Sales metrics</h3><p>Best days and hours (with a day × hour heat map), sales by month, top spenders, best sellers, price points, time to sell, consignment profitability and time to sell, and live vs offline.</p></div>
+      <div class="card"><h3>🧾 Changelog</h3><p>Every cost, consignment, price, stock and setting change — what it was, what it became, when, and whether TikTok accepted it. Downloadable as CSV.</p></div>
+      <div class="card"><h3>⚙ Settings</h3><p>TikTok fee (6%), streamer commission (10%), shipping estimate (fixed $ per order, default $8, or % of order), report time zone, password, and a one-click import of past TikTok orders so metrics have history from day one.</p></div>
+    </div>
+    <div class="call key"><span class="lbl">Estimates</span>Net revenue = gross − TikTok fee − commission − shipping estimate − cost of goods − consignee payouts. Shipping is always labelled as an estimate, and any sales with no cost entered are flagged so net is never silently overstated.</div>
   </section>
 
   <section id="rules">
-    <h2><span class="num">14</span> Golden rules</h2>
+    <h2><span class="num">18</span> Golden rules</h2>
     <div class="card">
       <div class="rule"><span class="n">1</span><div><b>Always pack from the top down.</b> Row 1 is always the next bag. Trust the sort.</div></div>
-      <div class="rule"><span class="n">2</span><div><b>Go Live before you sell, End Live when you're done.</b> Offline = orders are ignored.</div></div>
+      <div class="rule"><span class="n">2</span><div><b>Go Live before you sell, End Live when you're done.</b> Offline orders are still captured — check <b>🌙 Offline orders</b> daily.</div></div>
       <div class="rule"><span class="n">3</span><div><b>Red <span class="badge b-cancel">⚠ CANCEL REQ</span> = stop.</b> Expand, pull the flagged item, and never seal until it's handled.</div></div>
       <div class="rule"><span class="n">4</span><div><b>Green <span class="badge b-reorder">＋ ADDED MORE</span> = add to the bag in progress.</b> The buyer bought again while at #1.</div></div>
       <div class="rule"><span class="n">5</span><div><b>Same name ≠ same person.</b> Use the <span class="badge b-id">id …last4</span> tag and order numbers to tell them apart.</div></div>
       <div class="rule"><span class="n">6</span><div><b>Type clip times in your local clock.</b> The app records them in Eastern for the editor.</div></div>
       <div class="rule"><span class="n">7</span><div><b>The LTs Box persists.</b> Don't reset a counter unless the bank is actually hit.</div></div>
+      <div class="rule"><span class="n">8</span><div><b>Break labels = seats + orders.</b> Print with <span class="pill">🏷 All labels</span> or by round — the count on the button is exactly what will print.</div></div>
+      <div class="rule"><span class="n">9</span><div><b>Price and stock edits are live.</b> In the back office they change the real TikTok listing — every edit asks you to confirm and is logged.</div></div>
     </div>
   </section>
 
   <section id="fixes">
-    <h2><span class="num">15</span> Quick fixes</h2>
+    <h2><span class="num">19</span> Quick fixes</h2>
     <div class="fix"><b>Orders aren't coming in.</b> Check the LIVE badge — if it says OFFLINE, hit <span class="pill go">Go Live</span>. If it's live, check the green <b>Live feed</b> dot; a dropped feed reconnects on its own, and refreshing the page pulls the latest state.</div>
     <div class="fix"><b>I started the queue late and missed early orders.</b> The pre-live backfill already grabs the last ~15 minutes automatically on Go Live. It's idempotent, so it never duplicates what's there.</div>
     <div class="fix"><b>I fulfilled the wrong slot.</b> Open <b>Fulfilled this stream</b> and hit <span class="pill">↩ Undo</span> on that row — it returns to the board (as long as the buyer has no newer open slot).</div>
     <div class="fix"><b>A buyer added more after I started their bag.</b> Look for the <span class="badge b-reorder">＋ ADDED MORE</span> flash on #1 and expand the row — the new items sit under <b>Added since top of queue</b>.</div>
     <div class="fix"><b>Two buyers have the same name.</b> That's the <span class="badge b-same">⚠ SAME NAME</span> flag. Match on the <span class="badge b-id">id …last4</span> tag and the order number, not the name.</div>
     <div class="fix"><b>The Time Clip button is greyed out.</b> Set a stream start time first (it's normally auto-set at Go Live) — the button unlocks once a start exists.</div>
+    <div class="fix"><b>An order came in while we were offline — where is it?</b> In <b>🌙 Offline orders</b> (or in its break, if it bought break spots). If it was placed in the last ~15 minutes before Go Live, it moved into the live queue.</div>
+    <div class="fix"><b>The chat box says disconnected.</b> Make sure the @username is set and you're actually live on TikTok, then hit <span class="pill">↻ Reconnect</span>. The queue itself is unaffected.</div>
+    <div class="fix"><b>Back office says "waiting for product access".</b> The streamer needs to add the TikTok <b>Product</b> permission to the app. Costs, consignment, reports and metrics all work meanwhile.</div>
+    <div class="fix"><b>Net revenue looks too high.</b> Check for the "no cost entered" warning — add costs in <b>Inventory &amp; pricing</b> and every report updates instantly.</div>
     <div class="fix"><b>A LTs Box number looks wrong.</b> You can set or reset it manually in the panel; every change is logged with the old value, so nothing is lost.</div>
     <div class="call tip"><span class="lbl">Still stuck?</span>Nothing you click can lose data — the board is saved continuously and every ingest is idempotent, so refreshing is always safe. Practice the whole flow on the <a href="/sandbox">sandbox</a> whenever you like.</div>
+  </section>
+
+  <section id="new">
+    <h2><span class="num">20</span> What's new</h2>
+    <p>Every update is listed on the <b>✨ What's new</b> page in the admin header — what changed and what it means for you, newest first.</p>
   </section>
 
   </main>
 </div>
 
 <footer>
-  <b>LTs Workshop Queue</b> · TikTok Shop · Eastern time (EST/EDT) · session-based operator guide. Practice on the <a href="/sandbox">interactive sandbox</a>.
+  <b>LTs Workshop Queue</b> · TikTok Shop · Eastern time (EST/EDT) · always-listening operator guide. Practice on the <a href="/sandbox">interactive sandbox</a>.
 </footer>
 </body>
 </html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>After-Action Reports — LTs Workshop Queue</title>
+<style>
+  :root{ --bg:#0f1115; --paper:#ffffff; --ink:#191919; --ink2:#5b6270; --line:#e5e7eb; --soft:#f6f7f9;
+    --accent:#257de0; --good:#0a7d33; --bad:#c62828; --cons:#6a4ce2; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  .bar{position:sticky;top:0;z-index:5;background:#141824;border-bottom:1px solid #272c38;padding:12px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:#e8ebf2}
+  .bar h1{font-size:16px;margin:0 8px 0 0}
+  .bar a,.bar button{font-weight:600;font-size:13px;line-height:1.2;font-family:inherit;color:#e8ebf2;background:#1d212b;border:1px solid #272c38;border-radius:9px;padding:8px 12px;text-decoration:none;cursor:pointer}
+  .bar a:hover,.bar button:hover{border-color:#4f8cff}
+  .bar .primary{background:#2b6bff;border-color:#2b6bff}
+  .bar .sp{flex:1}
+  .wrap{max-width:1040px;margin:0 auto;padding:22px 16px 80px}
+  .paper{background:var(--paper);border-radius:14px;padding:34px 38px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+  /* list */
+  .list h2{margin:0 0 4px;font-size:22px}.list .sub{color:var(--ink2);margin:0 0 18px;font-size:13.5px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink2);border-bottom:2px solid var(--ink);padding:8px 10px;white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.4px;border-radius:20px;padding:2px 8px;background:#eef2ff;color:#3730a3;margin-left:6px}
+  .tag.seed{background:#fef3c7;color:#92400e}
+  /* report */
+  .rh{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:22px}
+  .rh .k{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink2);font-weight:700}
+  .rh h2{margin:4px 0 2px;font-size:26px;letter-spacing:-.2px}
+  .rh .when{color:var(--ink2);font-size:13.5px}
+  .rh .brand{text-align:right;font-weight:800;font-size:14px}
+  .rh .brand span{display:block;color:var(--ink2);font-weight:500;font-size:12px}
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:24px}
+  .kpi{background:var(--soft);border-radius:10px;padding:12px 14px}
+  .kpi .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink2);font-weight:700}
+  .kpi .v{font-size:22px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+  .kpi .s{font-size:11.5px;color:var(--ink2);margin-top:2px}
+  h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:30px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .cols{display:grid;grid-template-columns:1.15fr 1fr;gap:26px}
+  .wf td{padding:7px 10px}.wf tr.tot td{border-top:2px solid var(--ink);border-bottom:none;font-weight:800;font-size:15px}
+  .wf td.neg{color:var(--bad)}.wf .note{color:var(--ink2);font-size:11.5px}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .sbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .sbox .t{font-weight:800;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .sbox .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .sbox .row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .sbox .row b{font-weight:800}
+  .buyer td{border-bottom:none;padding-top:4px;padding-bottom:4px}
+  .buyer.first td{border-top:1px solid var(--line);padding-top:10px}
+  .buyer .bn{font-weight:800}.buyer .bh{color:var(--ink2);font-size:12px}
+  .buyer .on{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:12px;color:var(--ink2);white-space:nowrap}
+  .buyer .it{font-size:13px}
+  .cs{font-size:10px;font-weight:800;color:var(--cons);border:1px solid var(--cons);border-radius:4px;padding:0 4px;margin-left:4px}
+  .hours{display:flex;align-items:flex-end;gap:3px;height:120px;border-bottom:1px solid var(--ink2);padding:0 2px;position:relative}
+  .hours .b{flex:1;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px;position:relative}
+  .hours .b:hover{filter:brightness(1.15)}
+  .hlabels{display:flex;gap:3px;padding:4px 2px 0}.hlabels span{flex:1;text-align:center;font-size:10px;color:var(--ink2)}
+  .tip{position:fixed;pointer-events:none;background:#111;color:#fff;font-size:12px;padding:6px 9px;border-radius:7px;display:none;z-index:50;white-space:nowrap}
+  .muted{color:var(--ink2)}.small{font-size:12px}
+  .note-box{background:#fff8e6;border:1px solid #f5d08a;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#6b4e00;margin:0 0 18px}
+  .empty{color:var(--ink2);padding:30px 0;text-align:center}
+  @media (max-width:820px){ .kpis{grid-template-columns:repeat(3,1fr)} .cols,.split{grid-template-columns:1fr} .paper{padding:22px 18px} }
+  /* print / PDF */
+  @page{size:Letter;margin:0.5in}
+  @media print{
+    body{background:#fff}
+    .bar,.noprint{display:none!important}
+    .wrap{padding:0;max-width:none}
+    .paper{box-shadow:none;border-radius:0;padding:0}
+    h3{break-after:avoid}
+    tr,.sbox,.kpi{break-inside:avoid}
+    .kpi{border:1px solid var(--line);background:#fff}
+    .hours .b,.sbox .sw{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .kpis{grid-template-columns:repeat(6,1fr)!important;gap:6px}
+    .kpi{padding:8px 9px}.kpi .v{font-size:16px}
+    .cols{grid-template-columns:1.15fr 1fr!important;gap:18px}
+    .split{grid-template-columns:1fr 1fr!important}
+    .cols>div{break-inside:avoid}
+    body{font-size:12px} table{font-size:11.5px}
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>📋 After-Action Reports</h1>
+  <a href="{{ADMIN}}">← Queue</a>
+  <span class="sp"></span>
+  <span id="actions"></span>
+</div>
+<div class="wrap"><div class="paper" id="out"><div class="empty">Loading…</div></div></div>
+<div class="tip" id="tip"></div>
+<script>
+  const esc = (s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const money = (n)=>(n<0?'−':'')+'$'+Math.abs(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const int = (n)=>Number(n||0).toLocaleString('en-US');
+  let TZ = 'America/New_York';
+  const fmt = (ms, o)=> ms ? new Intl.DateTimeFormat('en-US',{timeZone:TZ,...o}).format(new Date(ms)) : '—';
+  const dateLong = (ms)=>fmt(ms,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const timeS = (ms)=>fmt(ms,{hour:'numeric',minute:'2-digit'});
+  const dur = (ms)=>{ if(!ms) return '—'; const m=Math.round(ms/60000); return m>=60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
+  const out = document.getElementById('out'), acts = document.getElementById('actions');
+
+  async function showList(){
+    acts.innerHTML = '';
+    let d; try{ d = await (await fetch('/api/reports')).json(); }catch{ out.innerHTML='<div class="empty">Couldn\'t load reports.</div>'; return; }
+    TZ = d.tz || TZ;
+    const rows = d.streams || [];
+    out.innerHTML = `<div class="list"><h2>Past stream reports</h2>
+      <p class="sub">Every stream is kept permanently. Click one to open its after-action report — export it to Excel or PDF from there. Times are ${esc(TZ.replace('America/','').replace('_',' '))} time.</p>
+      ${rows.length ? `<table><thead><tr><th>Stream</th><th>Time</th><th class="n">Orders</th><th class="n">Buyers</th><th class="n">Units</th><th class="n">Gross sales</th><th class="n">Net (est.)</th><th class="n">Consigned</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr class="click" onclick="location.hash='${esc(r.id)}'">
+        <td><b>${esc(dateLong(r.startedAt))}</b>${!r.endedAt?'<span class="tag">LIVE NOW</span>':''}${r.seeded?'<span class="tag seed" title="Imported from the older stream history — item prices may be estimated">imported</span>':''}</td>
+        <td class="muted">${esc(timeS(r.startedAt))} – ${r.endedAt?esc(timeS(r.endedAt)):'…'}</td>
+        <td class="n">${int(r.orders)}</td><td class="n">${int(r.buyers)}</td><td class="n">${int(r.units)}</td>
+        <td class="n"><b>${money(r.gross)}</b></td><td class="n">${money(r.net)}</td><td class="n">${r.consGross?money(r.consGross):'—'}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No streams recorded yet. Your first report appears the moment you end a live.</div>'}</div>`;
+  }
+
+  async function showReport(id){
+    let r; try{ const res = await fetch('/api/reports/'+encodeURIComponent(id)); if(!res.ok) throw 0; r = await res.json(); }
+    catch{ out.innerHTML = '<div class="empty">Report not found. <a href="#">Back to all reports</a></div>'; return; }
+    TZ = r.tz || TZ;
+    const t = r.totals, s = r.settings || {};
+    acts.innerHTML = `<a href="#">All reports</a> <a class="primary" href="/api/reports/${encodeURIComponent(id)}/xlsx">⬇ Excel</a> <button onclick="window.print()">⬇ PDF</button>`;
+    const shipNote = s.shippingMode==='pct' ? `${s.shippingPct}% of each order (estimate)` : `$${Number(s.shippingFixed||0).toFixed(2)} per order (estimate)`;
+    const wf = [
+      ['Gross sales', t.gross, '', 'What buyers paid for items, before shipping & tax'],
+      ['TikTok fees', -t.tiktokFee, 'neg', `${s.tiktokFeePct}% of gross`],
+      ['Streamer commission', -t.commission, 'neg', `${s.streamerPct}% of gross`],
+      ['Shipping', -t.shipping, 'neg', shipNote],
+      ['Cost of goods (own stock)', -t.cogs, 'neg', t.uncosted ? `${money(t.uncosted)} of sales have no cost entered yet` : 'From item costs in the back office'],
+      ['Paid to consignees', -t.payout, 'neg', 'Consignee share of consigned sales'],
+    ];
+    const maxH = Math.max(1, ...r.hours.map(h=>h.gross));
+    const hoursAll = []; for(let h=0;h<24;h++){ const x=r.hours.find(y=>Number(y.key)===h); hoursAll.push({h, g:x?x.gross:0, o:x?x.orders:0}); }
+    // Hours in STREAM order (a stream that runs past midnight reads 8p, 9p … 12a, 1a).
+    const hourOf = (ms)=> Number(new Intl.DateTimeFormat('en-US',{timeZone:TZ,hour:'numeric',hourCycle:'h23'}).format(new Date(ms))) % 24;
+    let hrs = [];
+    if(r.startedAt && hoursAll.some(x=>x.g>0)){
+      const h0 = hourOf(r.startedAt), h1 = hourOf(r.endedAt || Date.now());
+      const span = Math.min(23, ((h1 - h0 + 24) % 24));
+      for(let i=0;i<=span;i++) hrs.push(hoursAll[(h0+i)%24]);
+      // any sales outside the stream window (rare) still show
+      for(const x of hoursAll) if(x.g>0 && !hrs.includes(x)) hrs.push(x);
+    }
+    const hl = (h)=> (h%12||12)+(h<12?'a':'p');
+    let buyerRows = '';
+    r.buyers.forEach((b)=>{
+      b.orders.forEach((o,i)=>{
+        buyerRows += `<tr class="buyer${i===0?' first':''}">
+          <td>${i===0?`<div class="bn">${esc(b.buyer)}</div>${b.handle?`<div class="bh">@${esc(b.handle)}</div>`:''}`:''}</td>
+          <td class="on">#${esc(o.id)}</td>
+          <td class="it">${o.items.map(x=>`${x.qty}× ${esc(x.name)}${x.consigned?'<span class="cs">CONSIGNED</span>':''}`).join('<br>')}</td>
+          <td class="n">${money(o.total)}</td>
+          <td class="n">${i===0?`<b>${money(b.spend)}</b>`:''}</td></tr>`;
+      });
+    });
+    out.innerHTML = `
+      <div class="rh"><div><div class="k">After-action report</div><h2>${esc(dateLong(r.startedAt))}</h2>
+        <div class="when">${esc(timeS(r.startedAt))} – ${r.endedAt?esc(timeS(r.endedAt)):'still live'} ${esc(fmt(r.startedAt,{timeZoneName:'short'}).split(' ').pop())} · ${dur(r.durationMs)} on air</div></div>
+        <div class="brand">LTs Workshop<span>Live queue report</span></div></div>
+      ${r.seeded||r.priceEstimated ? `<div class="note-box">${r.seeded?'This stream was imported from the older stream history. ':''}${r.priceEstimated?'Some orders had no per-item price on file, so item values are split from the order total.':''}</div>`:''}
+      <div class="kpis">
+        <div class="kpi"><div class="l">Gross sales</div><div class="v">${money(t.gross)}</div></div>
+        <div class="kpi"><div class="l">Net revenue</div><div class="v">${money(t.net)}</div><div class="s">${t.margin}% margin · est.</div></div>
+        <div class="kpi"><div class="l">Orders</div><div class="v">${int(t.orders)}</div><div class="s">${r.cancelled.length} cancelled</div></div>
+        <div class="kpi"><div class="l">Unique buyers</div><div class="v">${int(t.buyers)}</div></div>
+        <div class="kpi"><div class="l">Units sold</div><div class="v">${int(t.units)}</div></div>
+        <div class="kpi"><div class="l">Avg order</div><div class="v">${money(t.aov)}</div></div>
+      </div>
+      <div class="cols">
+        <div><h3>Revenue breakdown</h3>
+          <table class="wf"><tbody>${wf.map(([l,v,c,n])=>`<tr><td>${esc(l)}<div class="note">${esc(n)}</div></td><td class="n ${c}">${money(v)}</td></tr>`).join('')}
+          <tr class="tot"><td>Net revenue (estimated)</td><td class="n">${money(t.net)}</td></tr></tbody></table></div>
+        <div><h3>Own stock vs consignment</h3>
+          <div class="split">
+            <div class="sbox"><div class="t"><span class="sw" style="background:#257de0"></span>Own stock</div>
+              <div class="row"><span>Gross</span><b>${money(t.ownGross)}</b></div>
+              <div class="row"><span>Net</span><b>${money(t.ownNet)}</b></div></div>
+            <div class="sbox"><div class="t"><span class="sw" style="background:#6a4ce2"></span>Consignment</div>
+              <div class="row"><span>Gross</span><b>${money(t.consGross)}</b></div>
+              <div class="row"><span>To consignees</span><b>${money(-t.consPayout)}</b></div>
+              <div class="row"><span>Net to us</span><b>${money(t.consNet)}</b></div></div>
+          </div>
+          ${r.consignees.length ? `<table style="margin-top:12px"><thead><tr><th>Consignee</th><th class="n">Units</th><th class="n">Gross</th><th class="n">Payout</th><th class="n">Net</th></tr></thead><tbody>
+            ${r.consignees.map(c=>`<tr><td>${esc(c.key)}</td><td class="n">${int(c.units)}</td><td class="n">${money(c.gross)}</td><td class="n">${money(c.payout)}</td><td class="n">${money(c.net)}</td></tr>`).join('')}</tbody></table>`
+            : '<p class="muted small" style="margin-top:12px">No consigned items sold this stream. Mark items as consigned in the back office.</p>'}
+          ${hrs.length ? `<h3>Sales by hour</h3><div class="hours">${hrs.map(x=>`<div class="b" style="height:${Math.max(2,Math.round(x.g/maxH*100))}%" data-tip="${esc(hl(x.h))} · ${money(x.g)} · ${x.o} order${x.o===1?'':'s'}"></div>`).join('')}</div>
+            <div class="hlabels">${hrs.map(x=>`<span>${hl(x.h)}</span>`).join('')}</div>`:''}
+        </div>
+      </div>
+      <h3>Buyers — ${int(r.buyers.length)} unique, by spend</h3>
+      ${r.buyers.length ? `<table><thead><tr><th>Buyer</th><th>Order #</th><th>Items</th><th class="n">Order</th><th class="n">Buyer spend</th></tr></thead><tbody>${buyerRows}</tbody></table>` : '<div class="empty">No orders.</div>'}
+      <h3>Items sold</h3>
+      ${r.items.length ? `<table><thead><tr><th>Item</th><th class="n">Units</th><th class="n">Orders</th><th class="n">Gross</th><th class="n">Net (est.)</th></tr></thead><tbody>
+        ${r.items.map(x=>`<tr><td>${esc(x.key)}</td><td class="n">${int(x.units)}</td><td class="n">${int(x.orders)}</td><td class="n">${money(x.gross)}</td><td class="n">${money(x.net)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nothing sold.</div>'}
+      ${r.breaks.length ? `<h3>Breaks</h3><table><thead><tr><th>Break</th><th class="n">Spots</th><th class="n">Buyers</th><th class="n">Value</th><th>Status</th></tr></thead><tbody>
+        ${r.breaks.map(b=>`<tr><td>${esc(b.title)}</td><td class="n">${int(b.spots)}</td><td class="n">${int(b.buyers)}</td><td class="n">${money(b.value)}</td><td>${b.status==='open'?'Open (carried over)':'Closed'}</td></tr>`).join('')}</tbody></table>`:''}
+      ${r.cancelled.length ? `<h3>Cancelled orders</h3><table><thead><tr><th>Order #</th><th>Buyer</th><th>Items</th><th class="n">Total</th></tr></thead><tbody>
+        ${r.cancelled.map(c=>`<tr><td class="on" style="font-family:Menlo,monospace;font-size:12px">#${esc(c.id)}</td><td>${esc(c.buyer)}</td><td>${c.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ')}</td><td class="n">${money(c.total)}</td></tr>`).join('')}</tbody></table>`:''}
+      <p class="muted small" style="margin-top:26px">Net revenue is an estimate: TikTok fee ${s.tiktokFeePct}%, streamer commission ${s.streamerPct}%, shipping ${esc(shipNote)}, and item costs / consignment splits entered in the back office. Generated ${esc(fmt(Date.now(),{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}))}.</p>`;
+    document.title = 'After-Action Report — ' + dateLong(r.startedAt);
+  }
+
+  // hover tooltip for the hour bars
+  const tip = document.getElementById('tip');
+  document.addEventListener('mousemove', (e)=>{
+    const b = e.target.closest && e.target.closest('[data-tip]');
+    if(!b){ tip.style.display='none'; return; }
+    tip.textContent = b.getAttribute('data-tip'); tip.style.display='block';
+    tip.style.left = (e.clientX+12)+'px'; tip.style.top = (e.clientY-30)+'px';
+  });
+  function route(){ const id = decodeURIComponent(location.hash.slice(1)); window.scrollTo(0,0); if(id) showReport(id); else showList(); }
+  window.addEventListener('hashchange', route);
+  route();
+</script>
+</body>
+</html>

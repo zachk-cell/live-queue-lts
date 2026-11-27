@@ -20,6 +20,9 @@ import { QueueEngine } from './queue.js';
 import { tiktokEnabled, mountAuth, startPolling, tiktokBoot, tiktokStatus, tiktokTokensForEnv, debugShops, refetchShopCipher, debugRawOrder, debugCancellations, backfillRecent, auditOrders } from './tiktok.js';
 import { startDiscord, discordEnabled } from './discord.js';
 import { startSimulator } from './simulator.js';
+import { Ledger } from './ledger.js';
+import { LiveChat } from './chat.js';
+import { mountBackoffice } from './backoffice.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -95,6 +98,30 @@ function verifySecondFactor(input) {
 }
 
 const queue = new QueueEngine();
+// Durable sales ledger (every order, forever) — powers reports, back office and
+// metrics. Seeded once from the queue's short stream history.
+const ledger = new Ledger();
+queue.ledger = ledger;
+try {
+  ledger.seedFromHistory(queue.history);
+  if (queue.live && queue.sessionStartedAt && !ledger.streams[String(queue.sessionStartedAt)]) {
+    ledger.startStream(String(queue.sessionStartedAt), queue.sessionStartedAt);
+  }
+  // Record anything currently on the board that the ledger hasn't seen yet.
+  for (const o of queue.orders.values()) {
+    if (ledger.orders[o.id]) continue;
+    const items = [...(o.items || []), ...(o.breakItems || []), ...(o.offlineItems || [])];
+    ledger.recordOrder({ ...o, items, total: o.fullTotal != null ? o.fullTotal : o.total },
+      { channel: o.offline ? 'offline' : 'live', streamId: o.offline ? null : (queue.sessionStartedAt ? String(queue.sessionStartedAt) : null), source: 'board' });
+    if (o.status === 'cancelled') ledger.markCancelled(o.id, o.cancelledAt);
+    if (o.status === 'fulfilled' || o.offlineDoneAt) ledger.markFulfilled(o.id, o.fulfilledAt || o.offlineDoneAt);
+  }
+} catch (e) { console.warn('[ledger] seed failed:', e.message); }
+const flushAll = () => { try { ledger.flush(); ledger.flushBo(); } catch { /* ignore */ } };
+process.on('SIGTERM', () => { flushAll(); process.exit(0); });
+process.on('SIGINT', () => { flushAll(); process.exit(0); });
+// Read-only TikTok LIVE chat (unofficial connector) for the #1-buyer chat box.
+const chat = new LiveChat(() => ledger.bo.chatUsername || process.env.TIKTOK_LIVE_USERNAME || '');
 const app = express();
 const server = http.createServer(app);
 const io = new IOServer(server);
@@ -338,6 +365,7 @@ app.post('/api/test-order', requireAuth, (req, res) => {
 app.post('/api/live/on', requireAuth, (_req, res) => {
   queue.goLive();
   res.json({ ok: true, live: true });
+  chat.start().catch((e) => console.warn('[chat] start failed:', e.message));
   // Auto-pull orders placed in the 15 min BEFORE Go Live, so a late queue start
   // doesn't miss them. Runs in the background so going live stays instant — the
   // orders stream into the queue as they're fetched. Fully idempotent (only adds
@@ -348,7 +376,11 @@ app.post('/api/live/on', requireAuth, (_req, res) => {
       .catch((e) => console.warn('[live/on] pre-live backfill failed:', e.message));
   }
 });
-app.post('/api/live/off', requireAuth, (_req, res) => { queue.endLive(); res.json({ ok: true, live: false }); });
+app.post('/api/live/off', requireAuth, (_req, res) => {
+  queue.endLive();
+  chat.stop().catch(() => {});
+  res.json({ ok: true, live: false, reportId: (ledger.streamList().find((x) => x.endedAt) || {}).id || null });
+});
 
 // ---------- Fulfilled export (CSV) + stream history (admin only) ----------
 function toCsv(records, cancelled = [], unfulfilled = []) {
@@ -625,6 +657,11 @@ queue.on('change', () => {
   panelNs.emit('state', queue.snapshot());
   publicNs.emit('state', publicView());
 });
+
+// Offline orders, after-action reports, back office, chat feed, changelog.
+mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdminPage, isAuthed, ADMIN, SESSION_SECRET, dir: __dirname, panelNs });
+panelNs.on('connection', (socket) => socket.emit('chat-init', { status: chat.status(), messages: chat.recent(150) }));
+if (queue.live) setTimeout(() => chat.start().catch(() => {}), 5000).unref?.();
 
 // ---------- Integrations ----------
 if (discordEnabled()) {

@@ -309,14 +309,14 @@ export class QueueEngine extends EventEmitter {
   queuedOrderIds() {
     // Break-only orders are still live, unshipped orders — keep them in the
     // hold/cancel re-check too.
-    return [...this.orders.values()].filter((o) => o.status === 'queued' || o.status === 'break').map((o) => o.id);
+    return [...this.orders.values()].filter((o) => o.status === 'queued' || o.status === 'break' || (o.status === 'offline' && !o.offlineDoneAt)).map((o) => o.id);
   }
 
   /** Flag/unflag a queued order as On Hold (TikTok-side). Returns true if it
    *  actually changed, so the poller can log only real transitions. */
   setHold(orderId, onHold) {
     const o = this.orders.get(String(orderId));
-    if (!o || (o.status !== 'queued' && o.status !== 'break')) return false;
+    if (!o || (o.status !== 'queued' && o.status !== 'break' && o.status !== 'offline')) return false;
     if (!!o.onHold === !!onHold) return false;
     o.onHold = !!onHold;
     this._persist();
@@ -332,7 +332,10 @@ export class QueueEngine extends EventEmitter {
    *  info = { cancelRequested:boolean, items:[{name, cancelled}] }. */
   setCancelInfo(orderId, info) {
     const o = this.orders.get(String(orderId));
-    if (!o || (o.status !== 'queued' && o.status !== 'break')) return false;
+    if (this.ledger && this.ledger.orders[String(orderId)] && info) {
+      this.ledger.recordOrder({ id: orderId, items: info.items || [], cancelRequested: !!info.cancelRequested });
+    }
+    if (!o || (o.status !== 'queued' && o.status !== 'break' && o.status !== 'offline')) return false;
     let changed = false;
     const nextReq = !!(info && info.cancelRequested);
     if (!!o.cancelRequested !== nextReq) { o.cancelRequested = nextReq; changed = true; }
@@ -340,7 +343,7 @@ export class QueueEngine extends EventEmitter {
     // in the variant, so it uniquely identifies the line to the packer).
     if (info && Array.isArray(info.items) && info.items.length) {
       const cancelledNames = new Set(info.items.filter((it) => it.cancelled).map((it) => it.name));
-      for (const it of [...(o.items || []), ...(o.breakItems || [])]) {
+      for (const it of [...(o.items || []), ...(o.breakItems || []), ...(o.offlineItems || [])]) {
         const nc = cancelledNames.has(it.name);
         if (!!it.cancelled !== nc) { it.cancelled = nc; changed = true; }
       }
@@ -398,30 +401,37 @@ export class QueueEngine extends EventEmitter {
     const id = String(raw.id);
     if (this.orders.has(id)) return this.orders.get(id); // idempotent on order id
 
-    // Off-air: when not live, incoming orders are ignored — EXCEPT spots for a
-    // break that's still open, which go straight into that break. Any regular
-    // items in the same order are kept on the entry for reference (not queued).
+    // Already handled in an earlier window (e.g. a live order from the last few
+    // minutes before End Live that the offline listener sees again after the
+    // board cleared) — never re-ingest it as a new offline order.
+    if (this.ledger && this.ledger.orders[id]) return null;
+
+    // Off-air: EVERY order is captured. Spots for a break go straight into that
+    // break (opening one if needed); everything else lands in the Offline Orders
+    // section to be checked daily, labelled and handled.
     if (!this.live) {
       const bi = []; const other = [];
       for (const it of (raw.items || [])) {
-        const br = this._breakFor(it, false);
+        const br = this._breakFor(it, true);
         if (br) bi.push({ ...it, breakId: br.id }); else other.push(it);
       }
-      if (!bi.length) return null;
+      this.ledger?.recordOrder(raw, { channel: 'offline', streamId: null });
       const priced = bi.reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0);
       const order = {
         id, buyerId: String(raw.buyerId), buyer: raw.buyer || 'Buyer', buyerHandle: raw.buyerHandle || '',
         items: [], breakItems: bi, offlineItems: other,
-        total: priced || Number(raw.total || 0), fullTotal: Number(raw.total || 0),
+        total: bi.length ? (priced || Number(raw.total || 0)) : Number(raw.total || 0), fullTotal: Number(raw.total || 0),
         createdAt: raw.createdAt || Date.now(), receivedAt: Date.now(),
-        status: 'break', batchKey: `brk:${id}`, breakOnly: true, hasPriority: false, offline: true,
+        status: bi.length ? 'break' : 'offline', batchKey: bi.length ? `brk:${id}` : `off:${id}`,
+        breakOnly: bi.length > 0, hasPriority: false, offline: true,
         onHold: !!raw.onHold, cancelRequested: !!raw.cancelRequested,
       };
       this.orders.set(id, order);
       this._persist();
-      this.emit('change', { reason: 'break-entry-offline', order });
+      this.emit('change', { reason: bi.length ? 'break-entry-offline' : 'offline-order', order });
       return order;
     }
+    this.ledger?.recordOrder(raw, { channel: 'live', streamId: this.sessionStartedAt ? String(this.sessionStartedAt) : null });
 
     const buyerId = String(raw.buyerId);
     const createdAt0 = raw.createdAt || Date.now();
@@ -620,6 +630,7 @@ export class QueueEngine extends EventEmitter {
       o.status = 'fulfilled';
       o.fulfilledAt = now;
       o.bumped = false;
+      this.ledger?.markFulfilled(o.id, now);
     }
     if (this.openBatch.get(buyerId) === batchKey) this.openBatch.delete(buyerId);
     this._markTopReached();
@@ -644,6 +655,7 @@ export class QueueEngine extends EventEmitter {
     for (const o of orders) {
       o.status = 'queued';
       o.fulfilledAt = null;
+      this.ledger?.unmarkFulfilled(o.id);
     }
     this.openBatch.set(buyerId, batchKey);
     this._markTopReached();
@@ -726,8 +738,11 @@ export class QueueEngine extends EventEmitter {
       if (!bi.length) continue;
       const full = o.fullTotal != null ? o.fullTotal : o.total;
       const priced = bi.reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0);
+      // Remember how many regular (non-break) units this order had, so its
+      // shipping label still counts the whole order after the queue clears.
+      const otherUnits = (o.otherUnits || 0) + (o.items || []).filter((it) => !it.cancelled).reduce((n, it) => n + (it.qty || 1), 0);
       orders.push({
-        ...o, items: [], breakItems: bi.map((it) => ({ ...it })),
+        ...o, items: [], breakItems: bi.map((it) => ({ ...it })), otherUnits,
         status: 'break', breakOnly: true, batchKey: `brk:${o.id}`, bumped: false,
         total: priced || full, fullTotal: priced || full, carriedOver: true,
       });
@@ -738,17 +753,27 @@ export class QueueEngine extends EventEmitter {
   /** Clear the board after archiving, keeping carried-over breaks. */
   _clearBoardKeepingBreaks() {
     const keep = this._carryOverBreaks();
+    // Offline orders live on their own list until handled (and for a week after,
+    // so a mistaken "handled" can still be undone).
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const offline = [...this.orders.values()].filter((o) => (o.offlineItems || []).length && o.status !== 'cancelled'
+      && (!o.offlineDoneAt || o.offlineDoneAt > weekAgo));
     this.orders.clear();
     this.openBatch.clear();
     this.breaks = keep.breaks;
     for (const o of keep.orders) this.orders.set(o.id, o);
+    for (const o of offline) {
+      const k = this.orders.get(o.id);
+      if (k) { k.offlineItems = o.offlineItems; k.offline = true; k.offlineDoneAt = o.offlineDoneAt || null; }
+      else this.orders.set(o.id, { ...o, items: [], breakItems: [], status: 'offline', batchKey: `off:${o.id}`, breakOnly: false, bumped: false });
+    }
     return keep;
   }
 
   goLive() {
     // Safety net: archive a stream that was never ended. (If it WAS ended,
     // it's already archived — what's left is only carried-over breaks.)
-    if (this.live) this._archiveCurrentStream();
+    if (this.live) { this._ledgerEndStream(); this._archiveCurrentStream(); }
     this._clearBoardKeepingBreaks();
     // Per-variant counters PERSIST across streams (cumulative running totals).
     // They are only ever changed by the auto-tally or a manual admin edit/reset.
@@ -759,6 +784,8 @@ export class QueueEngine extends EventEmitter {
     this.streamStartAt = Date.now();
     this.streamEndAt = null;
     this.clips = [];
+    this.ledger?.startStream(String(this.sessionStartedAt), this.sessionStartedAt);
+    this._promoteRecentOffline(15);
     this._persist();
     this.emit('change', { reason: 'go-live' });
   }
@@ -766,7 +793,19 @@ export class QueueEngine extends EventEmitter {
   /** End a live: archive the whole stream (fulfilled, cancelled, and any
    *  still-unfulfilled orders) to Past streams, then clear the board so the
    *  main page empties and everything moves to history. Stops new orders. */
+  /** Close the current stream in the durable ledger (with its break summaries). */
+  _ledgerEndStream() {
+    if (!this.ledger || !this.sessionStartedAt) return;
+    const breaks = this.breakSummaries().map((b) => ({
+      id: b.id, title: b.title, status: b.status, spots: b.spots, value: b.value, capacity: b.capacity || null,
+      entries: b.entries.map((e) => ({ orderId: e.orderId, buyer: e.buyer, qty: e.qty, cancelled: e.cancelled, done: !!e.done, round: e.round })),
+    }));
+    this.ledger.endStream(String(this.sessionStartedAt), Date.now(), { breaks });
+    this.ledger.flush();
+  }
+
   endLive() {
+    this._ledgerEndStream();
     this._archiveCurrentStream();
     // The queue clears; open breaks with spots left to rip stay put.
     this._clearBoardKeepingBreaks();
@@ -913,6 +952,8 @@ export class QueueEngine extends EventEmitter {
       stats: this.stats(),
       config: { priorityItems: this.priorityItems, breakKeywords: this.breakKeywords, autoBreaks: this.autoBreaks, breakIgnore: this.breakIgnore },
       breaks: this.breakSummaries(),
+      offline: this.offlineOrders(),
+      lastStreamId: this.ledger ? ((this.ledger.streamList().find((x) => x.endedAt) || {}).id || null) : null,
       variants: this.trackedVariants.map((v) => ({
         id: v.id, label: v.label, product: v.product, variant: v.variant,
         count: this.variantCounts[v.id] || 0,
@@ -1003,7 +1044,7 @@ export class QueueEngine extends EventEmitter {
     if (!orders.length) return null;
     const buyerId = orders[0].buyerId;
     const now = Date.now();
-    for (const o of orders) { o.status = 'cancelled'; o.cancelledAt = now; o.bumped = false; }
+    for (const o of orders) { o.status = 'cancelled'; o.cancelledAt = now; o.bumped = false; this.ledger?.markCancelled(o.id, now); }
     if (this.openBatch.get(buyerId) === batchKey) this.openBatch.delete(buyerId);
     this._markTopReached();
     this._persist();
@@ -1015,8 +1056,9 @@ export class QueueEngine extends EventEmitter {
    *  order flips to CANCELLED on TikTok). Leaves any other orders in the same
    *  buyer's slot untouched. */
   cancelOrder(orderId) {
+    this.ledger?.markCancelled(orderId);
     const o = this.orders.get(String(orderId));
-    if (!o || (o.status !== 'queued' && o.status !== 'break')) return null;
+    if (!o || (o.status !== 'queued' && o.status !== 'break' && o.status !== 'offline')) return null;
     o.status = 'cancelled';
     o.cancelledAt = Date.now();
     o.bumped = false;
@@ -1054,6 +1096,65 @@ export class QueueEngine extends EventEmitter {
     });
     slots.sort((a, b) => b.cancelledAt - a.cancelledAt);
     return slots;
+  }
+
+  // ── Offline orders ─────────────────────────────────────────────────────────
+  /** Orders (or the non-break part of mixed orders) that came in while offline. */
+  offlineOrders() {
+    const list = [];
+    for (const o of this.orders.values()) {
+      if (!(o.offlineItems || []).length) continue;
+      const items = o.offlineItems.map((it) => ({ name: it.name, qty: it.qty || 1, price: Number(it.price) || 0, cancelled: !!it.cancelled }));
+      const live = items.filter((i) => !i.cancelled);
+      list.push({
+        orderId: o.id, buyerId: o.buyerId, buyer: o.buyer, buyerHandle: o.buyerHandle || '',
+        items, units: live.reduce((n, i) => n + i.qty, 0),
+        total: (() => {
+          const priced = Math.round(live.reduce((s, i) => s + i.price * i.qty, 0) * 100) / 100;
+          return priced || ((o.breakItems || []).length ? 0 : this._fullTotal(o));
+        })(),
+        createdAt: o.createdAt, doneAt: o.offlineDoneAt || null,
+        cancelled: o.status === 'cancelled' || (items.length > 0 && live.length === 0),
+        cancelRequested: !!o.cancelRequested, onHold: !!o.onHold,
+        breakSpots: (o.breakItems || []).filter((it) => !it.cancelled).reduce((n, it) => n + (it.qty || 1), 0),
+        breakTitle: (o.breakItems || []).length ? this._breakTitle(o.breakItems[0].breakId) : '',
+      });
+    }
+    return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+  /** At Go Live, orders placed in the last few minutes while offline (and not yet
+   *  handled) join the live queue — the same thing the pre-live backfill always
+   *  did, now that those orders are captured offline first. */
+  _promoteRecentOffline(minutes = 15) {
+    const since = Date.now() - minutes * 60000;
+    const move = [...this.orders.values()].filter((o) => o.status === 'offline' && !o.offlineDoneAt
+      && !(o.breakItems || []).length && (o.createdAt || 0) >= since);
+    for (const o of move) {
+      this.orders.delete(o.id);
+      const lo = this.ledger && this.ledger.orders[o.id];
+      if (lo) { lo.channel = 'live'; lo.streamId = String(this.sessionStartedAt); this.ledger.save(); }
+      const saved = this.ledger; this.ledger = null; // already on the ledger — don't skip/re-record
+      try {
+        this.upsertOrder({ id: o.id, buyerId: o.buyerId, buyer: o.buyer, buyerHandle: o.buyerHandle,
+          items: o.offlineItems, total: o.fullTotal != null ? o.fullTotal : o.total, createdAt: o.createdAt,
+          onHold: o.onHold, cancelRequested: o.cancelRequested });
+      } finally { this.ledger = saved; }
+    }
+    return move.length;
+  }
+
+  /** Mark offline orders handled (labels printed + shipped) — or undo. */
+  setOfflineDone(orderIds, done = true) {
+    const now = Date.now();
+    let n = 0;
+    for (const id of (Array.isArray(orderIds) ? orderIds : [orderIds])) {
+      const o = this.orders.get(String(id));
+      if (!o || !(o.offlineItems || []).length) continue;
+      if (done && !o.offlineDoneAt) { o.offlineDoneAt = now; this.ledger?.markFulfilled(o.id, now); n++; }
+      else if (!done && o.offlineDoneAt) { o.offlineDoneAt = null; this.ledger?.unmarkFulfilled(o.id); n++; }
+    }
+    if (n) { this._persist(); this.emit('change', { reason: done ? 'offline-done' : 'offline-undone', count: n }); }
+    return { count: n };
   }
 
   // ── Breaks ─────────────────────────────────────────────────────────────────
@@ -1156,6 +1257,15 @@ export class QueueEngine extends EventEmitter {
           done: (o.breakDone && o.breakDone[b.id]) || null,
           offline: !!o.offline,
           offlineItems: (o.offlineItems || []).map((it) => ({ name: it.name, qty: it.qty || 1 })),
+          // Every unit on this order (break seats + regular items) — printed on
+          // the order's SHIPPING label.
+          orderUnits: Math.max(
+            (o.otherUnits || 0) + [...(o.items || []), ...(o.breakItems || []), ...(o.offlineItems || [])]
+              .filter((it) => !it.cancelled).reduce((n, it) => n + (it.qty || 1), 0),
+            // The ledger keeps every line of the order, even after the queue part
+            // was archived — so older carried-over orders still count correctly.
+            (this.ledger && this.ledger.orders[o.id] ? this.ledger.orders[o.id].items : [])
+              .filter((it) => !it.cancelled).reduce((n, it) => n + (it.qty || 1), 0)),
         });
       }
       entries.sort((a, c) => (a.createdAt || 0) - (c.createdAt || 0));
@@ -1494,7 +1604,7 @@ export class QueueEngine extends EventEmitter {
   injectTestOrder(raw) {
     const wasLive = this.live;
     this.live = true;
-    const order = this.upsertOrder(raw);
+    const order = this.upsertOrder({ ...raw, test: true });
     this.live = wasLive;
     this._persist();
     this.emit('change', { reason: 'test-order' });

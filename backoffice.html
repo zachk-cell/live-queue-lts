@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Back office — LTs Workshop Queue</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#272c38; --grid:#232836;
+    --text:#e8ebf2; --text2:#9aa3b8; --accent:#4f8cff; --accent2:#2b6bff;
+    --good:#25c26e; --bad:#ff5d5d; --warn:#ffb020;
+    --s1:#338ced; --s2:#e76624; --cons:#9887ef;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#141824,#0f1115);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0 10px 0 0}
+  a{color:#9cc2ff}
+  .hl{color:var(--text);text-decoration:none;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:13px;font-weight:600}
+  .hl:hover{border-color:var(--accent)}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap}
+  .tab{background:transparent;border:1px solid transparent;color:var(--text2);border-radius:9px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer}
+  .tab.on{background:var(--panel2);border-color:var(--line);color:var(--text)}
+  .sp{flex:1}
+  main{max-width:1280px;margin:0 auto;padding:18px 16px 90px}
+  button{cursor:pointer;border-radius:9px;font-size:13px;font-weight:600;padding:8px 13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);font-family:inherit}
+  button:hover{filter:brightness(1.15)}
+  button.primary{background:var(--accent2);border-color:var(--accent2)}
+  button.ghost{background:transparent}
+  button.sm{padding:4px 8px;font-size:12px}
+  button:disabled{opacity:.45;cursor:default}
+  input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .card h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .card h2 .sub{font-weight:500;color:var(--text2);font-size:12.5px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--text2)}.small{font-size:12px}
+  .banner{border-radius:10px;padding:10px 13px;font-size:13px;margin-bottom:14px;line-height:1.45}
+  .banner.warn{background:#2c2410;border:1px solid #6b5313;color:#ffd98a}
+  .banner.info{background:#13213a;border:1px solid #2b4d8f;color:#bcd5ff}
+  .banner.ok{background:#10281b;border:1px solid #1f6b40;color:#a6efc4}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);border-bottom:1px solid var(--line);padding:8px;white-space:nowrap;position:sticky;top:0;background:var(--panel)}
+  td{padding:8px;border-bottom:1px solid #1f2430;vertical-align:middle}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  tr:hover td{background:#1a1e27}
+  .scroll{max-height:68vh;overflow:auto}
+  .pill{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.4px;border-radius:20px;padding:2px 8px}
+  .pill.cons{background:#2a2350;color:#cfc6ff}.pill.unc{background:#3a2c0c;color:#ffc861}.pill.low{background:#3a1717;color:#ffaaaa}
+  .ed{display:inline-flex;align-items:center;gap:6px}
+  .ed .pen{background:transparent;border:none;color:var(--text2);padding:2px 4px;font-size:13px}
+  .ed .pen:hover{color:var(--accent)}
+  .ed .pen:disabled{opacity:.3;cursor:not-allowed}
+  .ed input{width:90px;padding:4px 6px}
+  .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .kpi .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);font-weight:700}
+  .kpi .v{font-size:22px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi .s{font-size:11.5px;color:var(--text2);margin-top:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  /* charts */
+  .chart{position:relative}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:170px;border-bottom:1px solid var(--text2);padding:0 2px;background:repeating-linear-gradient(to top,transparent 0,transparent 41px,var(--grid) 41px,var(--grid) 42px)}
+  .bars .g{flex:1;display:flex;align-items:flex-end;gap:2px;height:100%}
+  .bars .b{flex:1;border-radius:4px 4px 0 0;min-height:2px;background:var(--s1)}
+  .bars .b.s2{background:var(--s2)}
+  .bars .b:hover{filter:brightness(1.2)}
+  .xl{display:flex;gap:4px;padding:5px 2px 0}.xl span{flex:1;text-align:center;font-size:10.5px;color:var(--text2);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--text2);margin-bottom:8px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .heat{display:grid;grid-template-columns:38px repeat(24,1fr);gap:2px;font-size:10px;color:var(--text2)}
+  .heat .c{height:20px;border-radius:3px;background:#1b2130}
+  .heat .c:hover{outline:1px solid #fff}
+  .heat .lab{display:flex;align-items:center}
+  .tip{position:fixed;pointer-events:none;background:#05070b;border:1px solid var(--line);color:#fff;font-size:12px;padding:6px 9px;border-radius:7px;display:none;z-index:99;white-space:nowrap}
+  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .filters label{font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:none;border-radius:0;background:transparent;color:var(--text2);padding:6px 10px}
+  .seg button.on{background:var(--panel2);color:var(--text)}
+  /* lock screen */
+  .lock{max-width:380px;margin:80px auto;text-align:center}
+  .lock .card{padding:26px 24px}
+  .lock h2{justify-content:center;font-size:18px}
+  .lock input{width:100%;margin:6px 0 10px;padding:11px 12px;font-size:14px}
+  .lock button{width:100%;padding:11px}
+  .err{color:#ff9b9b;font-size:12.5px;min-height:18px}
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal.open{display:flex}
+  .modal .card{width:min(460px,92vw);margin:0}
+  .modal label{display:block;font-size:12px;color:var(--text2);margin:10px 0 4px}
+  .modal input,.modal select,.modal textarea{width:100%}
+  .modal .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  @media (max-width:980px){ .kpis{grid-template-columns:repeat(3,1fr)} .grid2,.grid3{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔒 Back office</h1>
+  <a class="hl" href="{{ADMIN}}">← Queue</a>
+  <a class="hl" href="{{ADMIN}}/reports">📋 Reports</a>
+  <div class="tabs" id="tabs" style="display:none">
+    <button class="tab" data-t="inv">📦 Inventory & pricing</button>
+    <button class="tab" data-t="profit">💵 Profit & exports</button>
+    <button class="tab" data-t="metrics">📈 Sales metrics</button>
+    <button class="tab" data-t="log">🧾 Changelog</button>
+    <button class="tab" data-t="settings">⚙ Settings</button>
+  </div>
+  <span class="sp"></span>
+  <button class="ghost" id="lockBtn" style="display:none" onclick="lockNow()">🔒 Lock</button>
+</header>
+<main id="main"><div class="muted">Loading…</div></main>
+
+<div class="modal" id="modal"><div class="card" id="modalCard"></div></div>
+<div class="tip" id="tip"></div>
+
+<script type="module">
+import { buildFacts, aggregate, termsFromMap, itemKey, bandOf, PRICE_BANDS, bandLabel, tzParts } from '/static/analytics.js';
+
+const $ = (id)=>document.getElementById(id);
+const esc = (s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = (n)=>(Number(n)<0?'−':'')+'$'+Math.abs(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const money0 = (n)=>(Number(n)<0?'−':'')+'$'+Math.abs(Math.round(Number(n)||0)).toLocaleString('en-US');
+const int = (n)=>Number(n||0).toLocaleString('en-US');
+const pct = (n)=>(Math.round((Number(n)||0)*10)/10)+'%';
+async function api(url, body){
+  const r = await fetch(url, body===undefined ? {} : {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  let j = {}; try { j = await r.json(); } catch {}
+  if(r.status===401 && j.error==='locked'){ showLock(); throw new Error('locked'); }
+  return { ok: r.ok && j.ok !== false, status: r.status, ...j };
+}
+
+let D = null;          // /api/bo/data
+let ORDERS = null;     // /api/bo/orders
+let TAB = (location.hash||'#inv').slice(1);
+const fmtD = (ms, o={month:'short',day:'numeric',year:'numeric'})=> ms ? new Intl.DateTimeFormat('en-US',{timeZone:(D&&D.settings.timezone)||'America/New_York',...o}).format(new Date(ms)) : '—';
+
+// ───────────────────────── lock ─────────────────────────
+async function boot(){
+  const s = await (await fetch('/api/bo/status')).json().catch(()=>({}));
+  if(!s.unlocked) return showLock(s.password);
+  await load();
+}
+function showLock(pwState){
+  $('tabs').style.display='none'; $('lockBtn').style.display='none';
+  const setup = pwState === 'unset';
+  $('main').innerHTML = `<div class="lock"><div class="card">
+    <h2>🔒 ${setup?'Create the back-office password':'Back office is locked'}</h2>
+    <p class="muted small">${setup
+      ? 'This area (costs, consignment, profit, price & stock edits) has its own password, separate from the queue login. Choose one now — at least 8 characters. Only share it with the back-office team.'
+      : 'Enter the back-office password. It\'s separate from the queue login.'}</p>
+    <input type="password" id="pw" placeholder="${setup?'New password (8+ characters)':'Back-office password'}" autocomplete="${setup?'new-password':'current-password'}">
+    ${setup?'<input type="password" id="pw2" placeholder="Type it again" autocomplete="new-password">':''}
+    <div class="err" id="pwerr"></div>
+    <button class="primary" id="pwgo">${setup?'Create & unlock':'Unlock'}</button></div></div>`;
+  const go = async ()=>{
+    const pw = $('pw').value;
+    if(setup){ if(pw !== $('pw2').value){ $('pwerr').textContent='The two passwords don\'t match.'; return; } }
+    const r = await api(setup?'/api/bo/setup':'/api/bo/login', {password: pw}).catch(e=>({ok:false,error:e.message}));
+    if(!r.ok){ $('pwerr').textContent = r.error || 'Could not unlock.'; return; }
+    await load();
+  };
+  $('pwgo').onclick = go; $('pw').onkeydown = (e)=>{ if(e.key==='Enter') go(); };
+  setTimeout(()=>$('pw').focus(), 50);
+}
+window.lockNow = async ()=>{ await fetch('/api/bo/lock',{method:'POST'}); showLock('set'); };
+
+async function load(){
+  D = await api('/api/bo/data');
+  ORDERS = (await api('/api/bo/orders')).orders || [];
+  $('tabs').style.display='flex'; $('lockBtn').style.display='';
+  render();
+}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ TAB=b.dataset.t; location.hash=TAB; render(); });
+function render(){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.t===TAB));
+  ({inv:renderInv, profit:renderProfit, metrics:renderMetrics, log:renderLog, settings:renderSettings}[TAB] || renderInv)();
+}
+const termsOf = (l)=>termsFromMap(D.items, l);
+
+// ───────────────────────── modal helpers ─────────────────────────
+function modal(html){ $('modalCard').innerHTML = html; $('modal').classList.add('open'); }
+function closeModal(){ $('modal').classList.remove('open'); }
+window.closeModal = closeModal;
+$('modal').onclick = (e)=>{ if(e.target.id==='modal') closeModal(); };
+function confirmBox(title, body, okText='Confirm'){
+  return new Promise((res)=>{
+    modal(`<h2>${esc(title)}</h2><p class="muted" style="font-size:13.5px;line-height:1.5">${body}</p><div class="acts"><button class="ghost" id="cNo">Cancel</button><button class="primary" id="cYes">${esc(okText)}</button></div>`);
+    $('cNo').onclick=()=>{closeModal();res(false);}; $('cYes').onclick=()=>{closeModal();res(true);};
+  });
+}
+
+// ───────────────────────── inventory ─────────────────────────
+let invQ = '', invF = 'all', editing = null;
+function invRows(){
+  const sold = new Map(); // key -> {units, gross, first, last}
+  for(const o of ORDERS){
+    if(o.status==='cancelled') continue;
+    for(const it of o.items){ if(it.cancelled) continue;
+      for(const k of [itemKey(it), it.productId?'prod:'+it.productId:null].filter(Boolean)){
+        const s = sold.get(k) || {units:0,gross:0,first:o.createdAt,last:o.createdAt};
+        s.units += it.qty||1; s.gross += (Number(it.price)||0)*(it.qty||1);
+        s.first=Math.min(s.first,o.createdAt); s.last=Math.max(s.last,o.createdAt); sold.set(k,s);
+      }
+    }
+  }
+  const rows = [];
+  const cat = (D.catalog && D.catalog.products) || [];
+  if(cat.length){
+    for(const p of cat) for(const k of (p.skus||[])){
+      const key = 'sku:'+k.id;
+      const label = p.title + (k.name ? ' — '+k.name : '');
+      rows.push({ key, prodKey:'prod:'+p.id, productId:p.id, skuId:k.id, label, sellerSku:k.sellerSku, status:p.status,
+        price:k.price, stock:k.stock, wh:(k.warehouses||[]).length, listedAt:p.createdAt, s: sold.get(key) || {units:0,gross:0},
+        t: termsFromMap(D.items, {skuId:k.id, productId:p.id, name:label}), live:true });
+    }
+  } else {
+    for(const s of D.seen){
+      rows.push({ key:s.key, prodKey: s.productId?'prod:'+s.productId:null, productId:s.productId, skuId:s.skuId, label:s.name, sellerSku:s.sku,
+        price:s.lastPrice, stock:null, s:{units:s.units,gross:s.gross,first:s.firstSale,last:s.lastSale},
+        t: termsFromMap(D.items, {skuId:s.skuId, productId:s.productId, name:s.name}), live:false });
+    }
+  }
+  return rows;
+}
+function renderInv(){
+  const cat = D.catalog || {};
+  const synced = (cat.products||[]).length;
+  const scopeMsg = cat.error && /scope|permission|unauthor|denied|not allowed|105005|36009004/i.test(cat.error);
+  let banner = '';
+  if(!synced) banner = `<div class="banner warn">📦 <b>Waiting for product access.</b> Live stock and prices need the TikTok <b>Product</b> permission, which the streamer still has to add to the app. Until then you can already enter <b>costs</b> and <b>consignment</b> for every item that has sold (listed below) — they apply to past and future sales right away.${cat.error?`<br><span class="small" style="opacity:.8">Last sync: ${esc(cat.error)}</span>`:''}</div>`;
+  else banner = `<div class="banner ok">📦 Catalog synced ${esc(fmtD(cat.syncedAt,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} — ${int(synced)} products. Stock is re-synced every 6 hours (that history powers time-to-sell).${cat.error?`<br><span class="small">Latest sync failed: ${esc(cat.error)}</span>`:''}</div>`;
+  const rows = invRows();
+  const q = invQ.toLowerCase();
+  const shown = rows.filter(r=>(!q || r.label.toLowerCase().includes(q) || String(r.sellerSku||'').toLowerCase().includes(q))
+    && (invF==='all' || (invF==='cons' && r.t.consigned) || (invF==='unc' && !r.t.consigned && (r.t.cost==null||r.t.cost==='')) || (invF==='low' && r.stock!=null && r.stock<=2)));
+  const nUnc = rows.filter(r=>!r.t.consigned && (r.t.cost==null||r.t.cost==='')).length;
+  const s = D.settings;
+  const unitNet = (r)=>{
+    const p = Number(r.price)||0; if(!p) return null;
+    const fees = p*(s.tiktokFeePct+s.streamerPct)/100;
+    if(r.t.consigned){ const pay = r.t.splitType==='fixed' ? Number(r.t.splitValue)||0 : p*(Number(r.t.splitValue)||0)/100; return p-fees-pay; }
+    if(r.t.cost==null || r.t.cost==='') return null;
+    return p - fees - Number(r.t.cost);
+  };
+  $('main').innerHTML = banner + `<div class="card"><h2>Inventory & pricing <span class="sub">${synced?'live TikTok catalog':'items seen in sales'} · ${int(rows.length)} items</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <input id="invq" placeholder="Search item or SKU…" value="${esc(invQ)}" style="flex:1;min-width:200px">
+      <div class="seg" id="invf">${[['all','All'],['unc','No cost yet ('+nUnc+')'],['cons','Consigned'],['low','Low stock']].map(([k,l])=>`<button data-f="${k}" class="${invF===k?'on':''}">${l}</button>`).join('')}</div>
+      <button onclick="syncCatalog()" title="Pull products, prices and stock from TikTok">↻ Sync catalog</button>
+    </div>
+    <div class="scroll"><table><thead><tr><th>Item</th><th class="n">Price</th><th class="n">Stock</th><th class="n">Your cost</th><th>Consignment</th><th class="n">Sold</th><th class="n">Sold $</th><th class="n" title="Price − TikTok fee − commission − cost (or consignee share). Shipping not included.">Net / unit</th></tr></thead><tbody>
+    ${shown.map(r=>{
+      const nu = unitNet(r);
+      return `<tr>
+        <td><div style="font-weight:600">${esc(r.label)}</div><div class="small muted">${r.sellerSku?'SKU '+esc(r.sellerSku):''}${r.status&&r.status!=='ACTIVATE'?' · '+esc(r.status.toLowerCase()):''}</div></td>
+        <td class="n">${editCell(r,'price')}</td>
+        <td class="n">${editCell(r,'stock')}</td>
+        <td class="n">${r.t.consigned?'<span class="muted small">n/a</span>':editCell(r,'cost')}</td>
+        <td>${r.t.consigned?`<span class="pill cons">CONSIGNED</span> <span class="small">${esc(r.t.consignee||'—')} · ${r.t.splitType==='fixed'?money(r.t.splitValue)+'/unit':pct(r.t.splitValue)} to them</span>`:'<span class="muted small">own stock</span>'}
+          <button class="sm ghost" onclick="editCons('${esc(r.key)}')">✎</button></td>
+        <td class="n">${int(r.s.units)}</td><td class="n">${money0(r.s.gross)}</td>
+        <td class="n">${nu==null?'<span class="pill unc" title="Enter a cost to see margin">—</span>':`<span style="color:${nu<0?'var(--bad)':'var(--text)'}">${money(nu)}</span>`}</td></tr>`;
+    }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
+    </tbody></table></div>
+    <p class="small muted" style="margin-top:10px">✎ Price and stock change the live TikTok listing — click the pencil, type the new value, press Save, then confirm. Every change (and every cost / consignment edit) is recorded in the Changelog.</p></div>`;
+  $('invq').oninput = (e)=>{ invQ = e.target.value; const pos=e.target.selectionStart; renderInv(); const i=$('invq'); i.focus(); i.setSelectionRange(pos,pos); };
+  $('invf').onclick = (e)=>{ const f = e.target.dataset.f; if(f){ invF=f; renderInv(); } };
+  window.__rows = Object.fromEntries(rows.map(r=>[r.key, r]));
+}
+function editCell(r, field){
+  const v = field==='cost' ? r.t.cost : r[field];
+  const canLive = field==='cost' || (r.live && (field!=='stock' || r.wh<=1));
+  const shown = v==null || v==='' ? '<span class="muted">—</span>' : (field==='stock' ? int(v) + (v<=2?' <span class="pill low">low</span>':'') : money(v));
+  if(editing && editing.key===r.key && editing.field===field){
+    return `<span class="ed"><input id="edv" type="number" step="${field==='stock'?'1':'0.01'}" min="0" value="${v==null?'':v}"><button class="sm primary" onclick="saveEdit()">Save</button><button class="sm ghost" onclick="cancelEdit()">✕</button></span>`;
+  }
+  const why = field==='cost' ? 'Edit your cost for this item' : (!r.live ? 'Needs the TikTok Product permission + a catalog sync' : (field==='stock'&&r.wh>1 ? 'Stocked in several warehouses — edit in Seller Center' : 'Edit the live TikTok '+field));
+  return `<span class="ed">${shown}<button class="pen" title="${esc(why)}" ${canLive?'':'disabled'} onclick="startEdit('${esc(r.key)}','${field}')">✎</button></span>`;
+}
+window.startEdit = (key, field)=>{ editing = {key, field}; renderInv(); setTimeout(()=>{ const i=$('edv'); if(i){ i.focus(); i.select(); i.onkeydown=(e)=>{ if(e.key==='Enter') saveEdit(); if(e.key==='Escape') cancelEdit(); }; } }, 20); };
+window.cancelEdit = ()=>{ editing = null; renderInv(); };
+window.saveEdit = async ()=>{
+  const r = window.__rows[editing.key]; const field = editing.field;
+  const raw = $('edv').value.trim();
+  if(field==='cost'){
+    const res = await api('/api/bo/terms', {key: r.key, label: r.label, patch: {cost: raw===''?null:Number(raw)}});
+    if(!res.ok) return alert(res.error||'Save failed');
+    editing = null; await reloadData(); return;
+  }
+  const val = Number(raw);
+  if(raw==='' || !isFinite(val) || val<0 || (field==='price' && val<=0)) return alert('Enter a valid '+field+'.');
+  const from = field==='price' ? money(r.price) : int(r.stock);
+  const to = field==='price' ? money(val) : int(Math.floor(val));
+  if(!(await confirmBox(`Change ${field} on TikTok?`, `<b>${esc(r.label)}</b><br>${esc(field)}: <b>${from}</b> → <b>${to}</b><br><br>This updates the live listing in your TikTok shop right now and is recorded in the Changelog.`, `Yes, change ${field}`))) return;
+  const res = await api(field==='price'?'/api/bo/price':'/api/bo/stock', {productId:r.productId, skuId:r.skuId, [field==='price'?'price':'qty']: val});
+  if(!res.ok) alert('TikTok didn\'t accept the change: ' + (res.error||'unknown error') + (res.needsScope?'\n\nThe TikTok Product permission still needs to be added to the app.':''));
+  editing = null; await reloadData();
+};
+window.editCons = (key)=>{
+  const r = window.__rows[key]; const t = r.t;
+  modal(`<h2>Consignment — ${esc(r.label)}</h2>
+    <label><input type="checkbox" id="cc" ${t.consigned?'checked':''} style="width:auto"> This item is on consignment</label>
+    <label>Consignee (who owns it)</label><input id="cn" value="${esc(t.consignee||'')}" placeholder="e.g. Mike's collection">
+    <label>Consignee's share of each sale</label>
+    <div class="row"><select id="ct" style="width:auto"><option value="pct" ${t.splitType!=='fixed'?'selected':''}>% of the sale price</option><option value="fixed" ${t.splitType==='fixed'?'selected':''}>Fixed $ per unit</option></select>
+      <input id="cv" type="number" step="0.01" min="0" value="${t.splitValue??''}" style="width:120px" placeholder="70"></div>
+    <label>Notes</label><input id="cno" value="${esc(t.notes||'')}">
+    ${r.prodKey && r.prodKey!==r.key ? `<label><input type="checkbox" id="cprod" style="width:auto"> Apply to every variant of this product</label>`:''}
+    <p class="small muted">Terms are stamped onto each sale when it happens, so later changes never rewrite what past sales paid out.</p>
+    <div class="acts"><button class="ghost" onclick="closeModal()">Cancel</button><button class="primary" id="csave">Save</button></div>`);
+  $('csave').onclick = async ()=>{
+    const patch = { consigned: $('cc').checked, consignee: $('cn').value.trim(), splitType: $('ct').value, splitValue: $('cv').value===''?null:Number($('cv').value), notes: $('cno').value.trim() };
+    const k = ($('cprod') && $('cprod').checked) ? r.prodKey : r.key;
+    const res = await api('/api/bo/terms', {key:k, label:r.label, patch});
+    if(!res.ok) return alert(res.error||'Save failed');
+    closeModal(); await reloadData();
+  };
+};
+window.syncCatalog = async ()=>{
+  const res = await api('/api/bo/sync', {});
+  if(!res.ok) alert(res.needsScope ? 'TikTok says the app doesn\'t have the Product permission yet — the streamer needs to add it. Costs and consignment still work meanwhile.' : ('Sync failed: '+(res.error||'')));
+  await reloadData();
+};
+async function reloadData(){ D = await api('/api/bo/data'); ORDERS = (await api('/api/bo/orders')).orders || []; render(); }
+
+// ───────────────────────── shared filters (profit + metrics) ─────────────────────────
+const F = { range:'90d', from:'', to:'', channel:'all', period:'month' };
+function rangeMs(){
+  const now = Date.now(), day=86400000;
+  const tz = D.settings.timezone;
+  const startOf = (unit)=>{ // local midnight (store time zone) of today / week / month / quarter / year
+    const p = tzParts(now, tz);
+    const d = new Date(now);
+    const wallNow = Date.UTC(p.year, p.month-1, p.day, p.hour, d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds());
+    const offset = wallNow - now; // store wall clock minus UTC
+    const ms = (y,m,day)=> Date.UTC(y,m,day) - offset;
+    if(unit==='day') return ms(p.year,p.month-1,p.day);
+    if(unit==='week') return ms(p.year,p.month-1,p.day-((p.dow+6)%7));
+    if(unit==='month') return ms(p.year,p.month-1,1);
+    if(unit==='quarter') return ms(p.year,(p.quarter-1)*3,1);
+    if(unit==='year') return ms(p.year,0,1);
+    return 0;
+  };
+  switch(F.range){
+    case 'today': return [startOf('day'), now+1];
+    case 'week': return [startOf('week'), now+1];
+    case 'month': return [startOf('month'), now+1];
+    case 'quarter': return [startOf('quarter'), now+1];
+    case 'year': return [startOf('year'), now+1];
+    case '30d': return [now-30*day, now+1];
+    case '90d': return [now-90*day, now+1];
+    case '365d': return [now-365*day, now+1];
+    case 'custom': return [F.from?new Date(F.from+'T00:00').getTime():0, F.to?new Date(F.to+'T23:59:59').getTime():now+1];
+    default: return [0, now+1];
+  }
+}
+function filtersHtml(showPeriod){
+  return `<div class="filters">
+    <label>Range <select id="fr">${[['today','Today'],['week','This week'],['month','This month'],['quarter','This quarter'],['year','This year'],['30d','Last 30 days'],['90d','Last 90 days'],['365d','Last 12 months'],['all','All time'],['custom','Custom…']].map(([k,l])=>`<option value="${k}" ${F.range===k?'selected':''}>${l}</option>`).join('')}</select></label>
+    <span id="fcustom" style="display:${F.range==='custom'?'inline-flex':'none'};gap:6px;align-items:center"><input type="date" id="ffrom" value="${F.from}"> → <input type="date" id="fto" value="${F.to}"></span>
+    <label>Sales <span class="seg" id="fch">${[['all','Live + offline'],['live','Live only'],['offline','Offline only'],['split','Live vs offline']].map(([k,l])=>`<button data-c="${k}" class="${F.channel===k?'on':''}">${l}</button>`).join('')}</span></label>
+    ${showPeriod?`<label>Group by <select id="fp">${[['stream','Stream'],['day','Day'],['week','Week'],['month','Month'],['quarter','Quarter'],['year','Year']].map(([k,l])=>`<option value="${k}" ${F.period===k?'selected':''}>${l}</option>`).join('')}</select></label>`:''}
+  </div>`;
+}
+function wireFilters(){
+  $('fr').onchange = (e)=>{ F.range = e.target.value; render(); };
+  if($('ffrom')){ $('ffrom').onchange=(e)=>{F.from=e.target.value; render();}; $('fto').onchange=(e)=>{F.to=e.target.value; render();}; }
+  $('fch').onclick = (e)=>{ const c=e.target.dataset.c; if(c){ F.channel=c; render(); } };
+  if($('fp')) $('fp').onchange = (e)=>{ F.period = e.target.value; render(); };
+}
+function filteredFacts(){
+  const [a,b] = rangeMs();
+  let os = ORDERS.filter(o=>o.createdAt>=a && o.createdAt<b);
+  if(F.channel==='live' || F.channel==='offline') os = os.filter(o=>(o.channel||'live')===F.channel);
+  return { orders: os, facts: buildFacts(os, D.settings, termsOf) };
+}
+const streamName = (id)=>{ const s=(D.streams||[]).find(x=>x.id===id); return s ? 'Stream '+fmtD(s.startedAt,{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : id; };
+const periodKey = (f)=>({ stream: f.streamId ? streamName(f.streamId) : 'Offline (no stream)', day:f.date, week:'Week of '+f.week, month:`${f.year}-${String(f.month).padStart(2,'0')}`, quarter:`${f.year} Q${f.quarter}`, year:String(f.year) }[F.period]);
+function kpis(t, extra=''){
+  return `<div class="kpis">
+    <div class="kpi"><div class="l">Gross sales</div><div class="v">${money0(t.gross)}</div><div class="s">${int(t.units)} units</div></div>
+    <div class="kpi"><div class="l">Net revenue (est.)</div><div class="v">${money0(t.net)}</div><div class="s">${pct(t.margin)} margin</div></div>
+    <div class="kpi"><div class="l">Orders</div><div class="v">${int(t.orders)}</div><div class="s">avg ${money(t.aov)}</div></div>
+    <div class="kpi"><div class="l">Unique buyers</div><div class="v">${int(t.buyers)}</div></div>
+    <div class="kpi"><div class="l">Consigned gross</div><div class="v">${money0(t.consGross)}</div><div class="s">net to us ${money0(t.consNet)}</div></div>
+    <div class="kpi"><div class="l">Fees + commission</div><div class="v">${money0(t.tiktokFee+t.commission)}</div><div class="s">shipping est. ${money0(t.shipping)}</div></div>
+  </div>${extra}`;
+}
+const total = (facts)=> (aggregate(facts, ()=> 'T')[0]) || {orders:0,buyers:0,units:0,gross:0,net:0,margin:0,aov:0,consGross:0,consNet:0,tiktokFee:0,commission:0,shipping:0,cogs:0,payout:0,uncosted:0};
+
+// ───────────────────────── profit & exports ─────────────────────────
+function renderProfit(){
+  const { facts } = filteredFacts();
+  const t = total(facts);
+  const rows = aggregate(facts, (f)=> F.channel==='split' ? periodKey(f)+' · '+f.channel : periodKey(f)).sort((a,b)=>String(a.key).localeCompare(String(b.key)));
+  const sheets = [['summary','Summary by period'],['lines','Every order line'],['items','Items'],['buyers','Buyers'],['consignment','Consignment']];
+  $('main').innerHTML = filtersHtml(true) + kpis(t, t.uncosted ? `<div class="banner warn">⚠ ${money0(t.uncosted)} of own-stock sales in this range have <b>no cost entered</b>, so net revenue is overstated for those items. Add costs in Inventory & pricing.</div>` : '') +
+    `<div class="card"><h2>Profit by ${esc(F.period)} <span class="sub">${F.channel==='split'?'live and offline shown separately':F.channel==='all'?'live + offline combined':F.channel+' only'}</span></h2>
+      <div class="scroll"><table><thead><tr><th>${F.period==='stream'?'Stream':'Period'}</th><th class="n">Orders</th><th class="n">Buyers</th><th class="n">Units</th><th class="n">Gross</th><th class="n">TikTok fee</th><th class="n">Commission</th><th class="n">Shipping est.</th><th class="n">COGS</th><th class="n">Consignee</th><th class="n">Net</th><th class="n">Margin</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${esc(r.key)}</td><td class="n">${int(r.orders)}</td><td class="n">${int(r.buyers)}</td><td class="n">${int(r.units)}</td><td class="n"><b>${money(r.gross)}</b></td><td class="n">${money(r.tiktokFee)}</td><td class="n">${money(r.commission)}</td><td class="n">${money(r.shipping)}</td><td class="n">${money(r.cogs)}</td><td class="n">${money(r.payout)}</td><td class="n"><b>${money(r.net)}</b></td><td class="n">${pct(r.margin)}</td></tr>`).join('') || '<tr><td colspan="12" class="muted">No sales in this range.</td></tr>'}
+      ${rows.length?`<tr><td><b>Total</b></td><td class="n"><b>${int(t.orders)}</b></td><td class="n"><b>${int(t.buyers)}</b></td><td class="n"><b>${int(t.units)}</b></td><td class="n"><b>${money(t.gross)}</b></td><td class="n">${money(t.tiktokFee)}</td><td class="n">${money(t.commission)}</td><td class="n">${money(t.shipping)}</td><td class="n">${money(t.cogs)}</td><td class="n">${money(t.payout)}</td><td class="n"><b>${money(t.net)}</b></td><td class="n">${pct(t.margin)}</td></tr>`:''}
+      </tbody></table></div></div>
+    <div class="card"><h2>Export to Excel</h2>
+      <p class="small muted" style="margin-top:0">Uses the range, sales channel and grouping chosen above. Every sheet has frozen headers, filters and real currency formatting.</p>
+      <div class="row">${sheets.map(([k,l])=>`<label class="small"><input type="checkbox" class="xs" value="${k}" checked> ${l}</label>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><button class="primary" onclick="doExport()">⬇ Download Excel</button></div></div>`;
+  wireFilters();
+}
+window.doExport = ()=>{
+  const [a,b] = rangeMs();
+  const sheets = [...document.querySelectorAll('.xs:checked')].map(x=>x.value).join(',');
+  const q = new URLSearchParams({ from:a, to:b, period:F.period, channel:F.channel, sheets });
+  location.href = '/api/bo/export?' + q.toString();
+};
+
+// ───────────────────────── sales metrics ─────────────────────────
+const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const dowIdx = (d)=> (d+6)%7; // Mon=0
+const hl = (h)=> (h%12||12)+(h<12?'a':'p');
+function barChart(groups, opts={}){
+  // groups: [{label, values:[{v, tip, s2?}]}]
+  const max = Math.max(1, ...groups.flatMap(g=>g.values.map(x=>x.v)));
+  return `<div class="chart"><div class="bars">${groups.map(g=>`<div class="g">${g.values.map(x=>`<div class="b${x.s2?' s2':''}" style="height:${Math.max(x.v>0?2:0,Math.round(x.v/max*100))}%" data-tip="${esc(x.tip)}"></div>`).join('')}</div>`).join('')}</div>
+    <div class="xl">${groups.map(g=>`<span title="${esc(g.label)}">${esc(g.label)}</span>`).join('')}</div></div>`;
+}
+const median = (a)=>{ if(!a.length) return null; const s=[...a].sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+function renderMetrics(){
+  const { facts } = filteredFacts();
+  const t = total(facts);
+  const split = F.channel==='split';
+  const by = (fn)=> aggregate(facts, fn);
+  // day of week + hour
+  const mk = (keys, keyFn, labelFn)=> keys.map(k=>{
+    if(!split){ const r = facts.filter(f=>keyFn(f)===k); const a=total(r); return {label:labelFn(k), values:[{v:a.gross, tip:`${labelFn(k)} · ${money0(a.gross)} · ${int(a.orders)} orders`}]}; }
+    return {label:labelFn(k), values:['live','offline'].map(c=>{ const a=total(facts.filter(f=>keyFn(f)===k && f.channel===c)); return {v:a.gross, s2:c==='offline', tip:`${labelFn(k)} · ${c} · ${money0(a.gross)} · ${int(a.orders)} orders`}; })};
+  });
+  const dowG = mk([0,1,2,3,4,5,6], (f)=>dowIdx(f.dow), (k)=>DOW[k]);
+  const hourG = mk([...Array(24).keys()], (f)=>f.hour, hl);
+  const months = [...new Set(facts.map(f=>`${f.year}-${String(f.month).padStart(2,'0')}`))].sort();
+  const monG = mk(months, (f)=>`${f.year}-${String(f.month).padStart(2,'0')}`, (k)=>{ const [y,m]=k.split('-'); return new Date(Date.UTC(+y,+m-1,15)).toLocaleString('en-US',{month:'short',timeZone:'UTC'})+" '"+y.slice(2); });
+  // heatmap day x hour (gross)
+  const heat = {}; let hmax = 0;
+  for(const f of facts){ const k=dowIdx(f.dow)+':'+f.hour; heat[k]=(heat[k]||0)+f.gross; hmax=Math.max(hmax,heat[k]); }
+  const ramp = (v)=>{ if(!v) return '#1b2130'; const x = Math.sqrt(v/hmax); const a=[0x1b,0x30,0x52], b=[0x9d,0xc8,0xf7]; return 'rgb('+a.map((c,i)=>Math.round(c+(b[i]-c)*x)).join(',')+')'; };
+  // top spenders
+  const spenders = by((f)=>f.buyerKey).map(r=>{ const f=facts.find(x=>x.buyerKey===r.key); return {...r, name:f.buyer, handle:f.buyerHandle}; }).sort((a,b)=>b.gross-a.gross).slice(0,15);
+  // best sellers
+  const items = by((f)=>f.name).sort((a,b)=>b.gross-a.gross).slice(0,15);
+  // price bands
+  const listed = {}; for(const p of (D.catalog.products||[])) { listed['prod:'+p.id]=p.createdAt; for(const k of (p.skus||[])) listed['sku:'+k.id]=p.createdAt; }
+  const firstSeen = {}; for(const o of ORDERS) for(const it of o.items){ const k=itemKey(it); firstSeen[k]=Math.min(firstSeen[k]||Infinity,o.createdAt); }
+  const bandRows = PRICE_BANDS.map(b=>{
+    const lab = bandLabel(b); const fs = facts.filter(f=>f.band===lab);
+    const a = total(fs);
+    const items = new Set(fs.map(f=>f.key));
+    const days = fs.map(f=>{ const L = listed[f.key] || (f.productId?listed['prod:'+f.productId]:null); return L ? (f.t - L)/86400000 : null; }).filter(x=>x!=null && x>=0);
+    return { lab, ...a, items: items.size, daysToSell: median(days), basis: days.length ? 'listing' : null };
+  }).filter(r=>r.units);
+  const bestBand = bandRows.slice().sort((a,b)=>b.gross-a.gross)[0];
+  // time to sell per item
+  const now = Date.now();
+  const tts = by((f)=>f.key).map(r=>{
+    const fs = facts.filter(f=>f.key===r.key); const f0 = fs[0];
+    const L = listed[r.key] || (f0.productId?listed['prod:'+f0.productId]:null);
+    const start = L || firstSeen[r.key] || Math.min(...fs.map(f=>f.t));
+    const last = Math.max(...fs.map(f=>f.t));
+    const days = Math.max(1, (Math.max(last, now) - start)/86400000);
+    const perWeek = r.units / days * 7;
+    return { ...r, name: f0.name, band: bandOf(r.gross/r.units), from: start, basis: L?'listing':'first sale', perWeek, daysFor10: perWeek ? 10/(perWeek/7) : null, consigned: fs.some(f=>f.consigned) };
+  }).sort((a,b)=>b.perWeek-a.perWeek).slice(0,20);
+  // consignment
+  const cf = facts.filter(f=>f.consigned), of = facts.filter(f=>!f.consigned);
+  const ct = total(cf), ot = total(of);
+  const consBands = PRICE_BANDS.map(b=>{ const lab=bandLabel(b); const fs=cf.filter(f=>f.band===lab); if(!fs.length) return null;
+    const a=total(fs); const d=fs.map(f=>{ const L=listed[f.key]||firstSeen[f.key]; return L?(f.t-L)/86400000:null; }).filter(x=>x!=null&&x>=0); return {lab, ...a, days:median(d)}; }).filter(Boolean);
+  const consignees = aggregate(cf, (f)=>f.consignee||'Unnamed').sort((a,b)=>b.gross-a.gross);
+  const liveT = total(facts.filter(f=>f.channel==='live')), offT = total(facts.filter(f=>f.channel==='offline'));
+  const legend = split ? `<div class="legend"><span><i style="background:var(--s1)"></i>Live</span><span><i style="background:var(--s2)"></i>Offline</span></div>` : '';
+  const topDow = dowG.map((g,i)=>({i, v:g.values.reduce((s,x)=>s+x.v,0)})).sort((a,b)=>b.v-a.v)[0];
+  const topHour = hourG.map((g,i)=>({i, v:g.values.reduce((s,x)=>s+x.v,0)})).sort((a,b)=>b.v-a.v)[0];
+
+  $('main').innerHTML = filtersHtml(false) + kpis(t) +
+  (facts.length ? `
+  <div class="grid3">
+    <div class="card"><h2>🏆 Best day</h2><div class="kpi" style="border:none;padding:0"><div class="v">${topDow&&topDow.v?DOW[topDow.i]:'—'}</div><div class="s">${topDow?money0(topDow.v)+' gross in range':''}</div></div></div>
+    <div class="card"><h2>⏰ Best hour</h2><div class="kpi" style="border:none;padding:0"><div class="v">${topHour&&topHour.v?hl(topHour.i)+'–'+hl((topHour.i+1)%24):'—'}</div><div class="s">${topHour?money0(topHour.v)+' gross':''} · ${esc(D.settings.timezone.replace('America/',''))} time</div></div></div>
+    <div class="card"><h2>💎 Top-earning price range</h2><div class="kpi" style="border:none;padding:0"><div class="v">${bestBand?esc(bestBand.lab):'—'}</div><div class="s">${bestBand?money0(bestBand.gross)+' · '+int(bestBand.units)+' units · '+int(bestBand.items)+' items':''}</div></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>Sales by day of week <span class="sub">gross</span></h2>${legend}${barChart(dowG)}</div>
+    <div class="card"><h2>Sales by hour of day <span class="sub">gross · ${esc(D.settings.timezone.replace('America/',''))}</span></h2>${legend}${barChart(hourG.map(g=>({...g,label:g.label})))}</div>
+  </div>
+  <div class="card"><h2>When sales happen <span class="sub">day × hour, darker = less · hover for $</span></h2>
+    <div class="heat"><span></span>${[...Array(24).keys()].map(h=>`<span style="text-align:center">${h%3===0?hl(h):''}</span>`).join('')}
+    ${DOW.map((d,di)=>`<span class="lab">${d}</span>${[...Array(24).keys()].map(h=>{ const v=heat[di+':'+h]||0; return `<div class="c" style="background:${ramp(v)}" data-tip="${d} ${hl(h)} · ${money0(v)}"></div>`; }).join('')}`).join('')}</div></div>
+  ${months.length>1?`<div class="card"><h2>Sales by month <span class="sub">gross</span></h2>${legend}${barChart(monG)}</div>`:''}
+  <div class="grid2">
+    <div class="card"><h2>Top spenders</h2><div class="scroll" style="max-height:420px"><table><thead><tr><th>#</th><th>Buyer</th><th class="n">Orders</th><th class="n">Units</th><th class="n">Spend</th></tr></thead><tbody>
+      ${spenders.map((r,i)=>`<tr><td class="muted">${i+1}</td><td><b>${esc(r.name)}</b>${r.handle?` <span class="small muted">@${esc(r.handle)}</span>`:''}</td><td class="n">${int(r.orders)}</td><td class="n">${int(r.units)}</td><td class="n"><b>${money0(r.gross)}</b></td></tr>`).join('')}</tbody></table></div></div>
+    <div class="card"><h2>Best sellers</h2><div class="scroll" style="max-height:420px"><table><thead><tr><th>Item</th><th class="n">Units</th><th class="n">Gross</th><th class="n">Margin</th></tr></thead><tbody>
+      ${items.map(r=>`<tr><td>${esc(r.key)}</td><td class="n">${int(r.units)}</td><td class="n"><b>${money0(r.gross)}</b></td><td class="n">${pct(r.margin)}</td></tr>`).join('')}</tbody></table></div></div>
+  </div>
+  <div class="card"><h2>Price points <span class="sub">which price ranges sell most consistently</span></h2>
+    <table><thead><tr><th>Price per unit</th><th class="n">Units</th><th class="n">Orders</th><th class="n">Distinct items</th><th class="n">Gross</th><th class="n">Net</th><th class="n">Margin</th><th class="n" title="Median days from the product being listed to each sale (needs a catalog sync)">Median days to sell</th></tr></thead><tbody>
+    ${bandRows.map(r=>`<tr${bestBand&&r.lab===bestBand.lab?' style="background:#16233f"':''}><td><b>${esc(r.lab)}</b></td><td class="n">${int(r.units)}</td><td class="n">${int(r.orders)}</td><td class="n">${int(r.items)}</td><td class="n">${money0(r.gross)}</td><td class="n">${money0(r.net)}</td><td class="n">${pct(r.margin)}</td><td class="n">${r.daysToSell==null?'<span class="muted small">sync catalog</span>':Math.round(r.daysToSell)+'d'}</td></tr>`).join('')}</tbody></table></div>
+  <div class="card"><h2>Time to sell <span class="sub">fastest movers · velocity from ${D.catalog.products&&D.catalog.products.length?'listing date':'first sale'} to now</span></h2>
+    <div class="scroll" style="max-height:460px"><table><thead><tr><th>Item</th><th>Price band</th><th class="n">Units sold</th><th class="n">Units / week</th><th class="n">Days to move 10</th><th>Measured from</th></tr></thead><tbody>
+    ${tts.map(r=>`<tr><td>${esc(r.name)} ${r.consigned?'<span class="pill cons">CONSIGNED</span>':''}</td><td>${esc(r.band)}</td><td class="n">${int(r.units)}</td><td class="n">${(Math.round(r.perWeek*10)/10)}</td><td class="n">${r.daysFor10?Math.round(r.daysFor10)+'d':'—'}</td><td class="small muted">${esc(r.basis)} ${esc(fmtD(r.from))}</td></tr>`).join('')}</tbody></table></div>
+    <p class="small muted">Once the Product permission is added, daily stock snapshots make these exact (listing date, restocks and sell-through) instead of estimated from sales.</p></div>
+  <div class="card"><h2>Consignment <span class="sub">profitability and time to sell</span></h2>
+    <div class="grid3" style="margin-bottom:10px">
+      <div class="kpi"><div class="l">Consigned gross</div><div class="v">${money0(ct.gross)}</div><div class="s">${int(ct.units)} units · ${t.gross?pct(ct.gross/t.gross*100):'0%'} of sales</div></div>
+      <div class="kpi"><div class="l">Paid to consignees</div><div class="v">${money0(ct.payout)}</div></div>
+      <div class="kpi"><div class="l">Net to us · margin</div><div class="v">${money0(ct.net)}</div><div class="s">consigned ${pct(ct.margin)} vs own stock ${pct(ot.margin)}</div></div>
+    </div>
+    ${consignees.length?`<div class="grid2"><div><table><thead><tr><th>Consignee</th><th class="n">Units</th><th class="n">Gross</th><th class="n">Payout</th><th class="n">Net</th></tr></thead><tbody>${consignees.map(c=>`<tr><td>${esc(c.key)}</td><td class="n">${int(c.units)}</td><td class="n">${money0(c.gross)}</td><td class="n">${money0(c.payout)}</td><td class="n">${money0(c.net)}</td></tr>`).join('')}</tbody></table></div>
+      <div><table><thead><tr><th>Consigned price band</th><th class="n">Units</th><th class="n">Net</th><th class="n">Median days to sell</th></tr></thead><tbody>${consBands.map(b=>`<tr><td>${esc(b.lab)}</td><td class="n">${int(b.units)}</td><td class="n">${money0(b.net)}</td><td class="n">${b.days==null?'—':Math.round(b.days)+'d'}</td></tr>`).join('')}</tbody></table></div></div>`
+      :'<p class="muted small">No consigned sales in this range. Mark items as consigned in Inventory & pricing.</p>'}
+  </div>
+  <div class="card"><h2>Live vs offline</h2>
+    <div class="grid2"><div class="kpi"><div class="l"><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--s1);margin-right:5px"></i>Live</div><div class="v">${money0(liveT.gross)}</div><div class="s">${int(liveT.orders)} orders · avg ${money(liveT.aov)} · ${t.gross?pct(liveT.gross/t.gross*100):'0%'}</div></div>
+    <div class="kpi"><div class="l"><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--s2);margin-right:5px"></i>Offline</div><div class="v">${money0(offT.gross)}</div><div class="s">${int(offT.orders)} orders · avg ${money(offT.aov)} · ${t.gross?pct(offT.gross/t.gross*100):'0%'}</div></div></div></div>`
+  : `<div class="card muted">No sales in this range yet. ${ORDERS.length?'Try a wider range.':'Sales appear here as orders come in — or import past TikTok orders from ⚙ Settings to see history right away.'}</div>`);
+  wireFilters();
+}
+
+// ───────────────────────── changelog ─────────────────────────
+let logQ = '';
+function renderLog(){
+  const q = logQ.toLowerCase();
+  const rows = (D.changelog||[]).filter(c=>!q || JSON.stringify(c).toLowerCase().includes(q));
+  const v = (x)=> x==null||x==='' ? '<span class="muted">—</span>' : esc(typeof x==='number' ? (Number.isInteger(x)?x:x.toFixed(2)) : x);
+  $('main').innerHTML = `<div class="card"><h2>Changelog <span class="sub">every cost, consignment, price, stock and setting change — newest first</span></h2>
+    <div class="row" style="margin-bottom:10px"><input id="lq" placeholder="Search…" value="${esc(logQ)}" style="flex:1"><a href="/api/bo/changelog.csv"><button>⬇ CSV</button></a></div>
+    <div class="scroll"><table><thead><tr><th>When</th><th>What</th><th>Item / setting</th><th>Field</th><th class="n">From</th><th class="n">To</th><th>Result</th></tr></thead><tbody>
+    ${rows.map(c=>`<tr><td class="small">${esc(fmtD(c.ts,{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}))}</td><td>${esc(c.kind)}</td><td>${esc(c.label)}</td><td>${esc(c.field)}</td><td class="n">${v(c.from)}</td><td class="n">${v(c.to)}</td><td class="small ${c.result&&c.result!=='ok'?'':'muted'}" style="${c.result&&c.result!=='ok'?'color:var(--bad)':''}">${esc(c.result||'saved')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No changes yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  $('lq').oninput = (e)=>{ logQ=e.target.value; const p=e.target.selectionStart; renderLog(); $('lq').focus(); $('lq').setSelectionRange(p,p); };
+}
+
+// ───────────────────────── settings ─────────────────────────
+function renderSettings(){
+  const s = D.settings, li = D.lastImport;
+  $('main').innerHTML = `<div class="grid2">
+  <div class="card"><h2>Fees & estimates</h2>
+    <p class="small muted" style="margin-top:0">Used for every net-revenue / profit figure (reports, exports, metrics). Changes apply to all reports immediately and are logged.</p>
+    <label class="small muted">TikTok fee (% of sale)</label><div class="row"><input id="sf" type="number" step="0.1" min="0" value="${s.tiktokFeePct}" style="width:120px"> %</div>
+    <label class="small muted" style="display:block;margin-top:10px">Streamer commission (% of sale)</label><div class="row"><input id="sc" type="number" step="0.1" min="0" value="${s.streamerPct}" style="width:120px"> %</div>
+    <label class="small muted" style="display:block;margin-top:10px">Shipping estimate</label>
+    <div class="row"><select id="sm" style="width:auto"><option value="fixed" ${s.shippingMode!=='pct'?'selected':''}>Fixed $ per order</option><option value="pct" ${s.shippingMode==='pct'?'selected':''}>% of the order</option></select>
+      <span id="smf" style="display:${s.shippingMode!=='pct'?'inline-flex':'none'};gap:6px;align-items:center">$ <input id="sfx" type="number" step="0.01" min="0" value="${s.shippingFixed}" style="width:100px"> per order</span>
+      <span id="smp" style="display:${s.shippingMode==='pct'?'inline-flex':'none'};gap:6px;align-items:center"><input id="spc" type="number" step="0.1" min="0" value="${s.shippingPct}" style="width:100px"> % of order</span></div>
+    <p class="small muted">Shipping is an <b>estimate</b> — shown as such on every report.</p>
+    <label class="small muted" style="display:block;margin-top:10px">Report time zone</label>
+    <select id="stz">${['America/New_York','America/Chicago','America/Denver','America/Phoenix','America/Los_Angeles'].map(z=>`<option ${s.timezone===z?'selected':''}>${z}</option>`).join('')}</select>
+    <div class="row" style="margin-top:14px"><button class="primary" id="ssave">Save settings</button><span id="smsg" class="small muted"></span></div></div>
+  <div>
+  <div class="card"><h2>Import past TikTok orders</h2>
+    <p class="small muted" style="margin-top:0">Pulls every order from TikTok for the period you pick into the sales history, so metrics and exports cover more than what the queue has seen. Safe to run again — nothing is duplicated. Orders that fall inside a recorded stream count as live; others as offline.</p>
+    <div class="row"><select id="idays" style="width:auto"><option value="30">Last 30 days</option><option value="90" selected>Last 90 days</option><option value="180">Last 6 months</option><option value="365">Last 12 months</option></select><button id="igo">⬇ Import</button></div>
+    <p class="small" id="imsg">${li ? (li.error?`<span style="color:var(--bad)">Last import failed: ${esc(li.error)}</span>`:`Last import ${esc(fmtD(li.at,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))}: ${int(li.added)} orders added (last ${li.days} days).`) : '<span class="muted">Not run yet.</span>'}</p></div>
+  <div class="card"><h2>Back-office password</h2>
+    ${D.password==='env' ? '<p class="small muted">Set in Render as <code>BACKOFFICE_PASSWORD</code> — change it there.</p>' :
+    `<input type="password" id="pc" placeholder="Current password" style="width:100%;margin-bottom:6px"><input type="password" id="pn" placeholder="New password (8+ characters)" style="width:100%;margin-bottom:8px">
+     <div class="row"><button id="pgo">Change password</button><span class="small muted" id="pmsg"></span></div>
+     <p class="small muted">Changing it signs everyone else out of the back office.</p>`}</div>
+  </div></div>`;
+  $('sm').onchange = ()=>{ const p=$('sm').value==='pct'; $('smf').style.display=p?'none':'inline-flex'; $('smp').style.display=p?'inline-flex':'none'; };
+  $('ssave').onclick = async ()=>{
+    const r = await api('/api/bo/settings', { tiktokFeePct:+$('sf').value, streamerPct:+$('sc').value, shippingMode:$('sm').value, shippingFixed:+$('sfx').value, shippingPct:+$('spc').value, timezone:$('stz').value });
+    $('smsg').textContent = r.ok ? (r.changed ? 'Saved ✓' : 'No changes') : (r.error||'Failed');
+    if(r.ok) D.settings = r.settings;
+  };
+  $('igo').onclick = async ()=>{
+    const r = await api('/api/bo/import', {days: +$('idays').value});
+    if(!r.ok){ $('imsg').textContent = r.error || 'Could not start'; return; }
+    $('imsg').textContent = 'Importing…';
+    const poll = setInterval(async ()=>{
+      const p = await api('/api/bo/import');
+      if(p.running){ $('imsg').textContent = `Importing… ${int(p.running.done)} / ${int(p.running.total||0)} orders`; return; }
+      clearInterval(poll);
+      await reloadData();
+    }, 2000);
+  };
+  if($('pgo')) $('pgo').onclick = async ()=>{
+    const r = await api('/api/bo/password', {current:$('pc').value, next:$('pn').value});
+    $('pmsg').textContent = r.ok ? 'Password changed ✓' : (r.error||'Failed');
+  };
+}
+
+// tooltips
+const tip = $('tip');
+document.addEventListener('mousemove', (e)=>{
+  const b = e.target.closest && e.target.closest('[data-tip]');
+  if(!b){ tip.style.display='none'; return; }
+  tip.textContent = b.getAttribute('data-tip'); tip.style.display='block';
+  tip.style.left = Math.min(window.innerWidth-220, e.clientX+12)+'px'; tip.style.top = (e.clientY-34)+'px';
+});
+boot();
+</script>
+</body>
+</html>

@@ -102,7 +102,7 @@ function sign(pathName, params, body = '') {
   return crypto.createHmac('sha256', APP_SECRET).update(base).digest('hex');
 }
 
-async function apiCall(method, pathName, extraParams = {}, jsonBody = null, retry = true, includeShopCipher = true) {
+export async function apiCall(method, pathName, extraParams = {}, jsonBody = null, retry = true, includeShopCipher = true) {
   const params = {
     app_key: APP_KEY,
     timestamp: String(Math.floor(Date.now() / 1000)),
@@ -265,6 +265,9 @@ export function normalizeOrder(o) {
     return {
       name,
       sku: li.seller_sku || li.sku_id || '',
+      // TikTok ids — link sales to the catalog (cost, consignment, stock).
+      productId: li.product_id ? String(li.product_id) : '',
+      skuId: li.sku_id ? String(li.sku_id) : '',
       variant: variant || '',
       qty: li.quantity || 1,
       price,
@@ -285,6 +288,9 @@ export function normalizeOrder(o) {
     buyerHandle: (handle && handle !== display) ? handle : '',
     items,
     total: Number(o.payment?.total_amount || o.total_amount || 0),
+    // Buyer-paid shipping (not the label cost) — kept for reference.
+    shippingFee: _amount(o.payment?.shipping_fee),
+    status: String(o.status || ''),
     createdAt: o.create_time ? o.create_time * 1000 : Date.now(),
     // TikTok flips is_on_hold_order for SEVERAL reasons (address check, order
     // combine/split, sample/exchange orders, or a pending buyer cancellation).
@@ -520,10 +526,14 @@ export function startPolling(queue) {
   if (queue.live && queue.sessionStartedAt) {
     sinceEpoch = Math.max(Math.floor(queue.sessionStartedAt / 1000), capFloor);
     console.log('[tiktok] boot: resuming ingest window from', new Date(sinceEpoch * 1000).toISOString(), `(capped at ${capMin} min back)`);
-  } else if (!queue.live && queue.streamEndAt && queue.hasOpenBreaks && queue.hasOpenBreaks()) {
-    // Offline with open breaks: resume listening from when the live ended.
-    sinceEpoch = Math.max(Math.floor(queue.streamEndAt / 1000) - 300, capFloor);
-    console.log('[tiktok] boot (offline): listening for break orders since', new Date(sinceEpoch * 1000).toISOString());
+  } else if (!queue.live) {
+    // Offline: resume listening from when the last live ended (capped), so any
+    // order placed while the service was restarting is still captured. Orders
+    // already handled are skipped (the ledger knows every order ever seen).
+    const offCapMin = Number(process.env.TIKTOK_OFFLINE_LOOKBACK_MIN) || 4320; // 3 days
+    const offFloor = nowEpoch - Math.floor(offCapMin * 60);
+    sinceEpoch = queue.streamEndAt ? Math.max(Math.floor(queue.streamEndAt / 1000) - 300, offFloor) : nowEpoch - 1800;
+    console.log('[tiktok] boot (offline): listening for ALL orders since', new Date(sinceEpoch * 1000).toISOString());
   }
   const seen = new Set();
 
@@ -535,15 +545,14 @@ export function startPolling(queue) {
     if (e && e.reason === 'end-live') { sinceEpoch = Math.floor(Date.now() / 1000) - 300; }
   });
 
-  // While OFFLINE the poller keeps running only if a break is still open, and
-  // at a slower pace; upsertOrder then accepts break items for open breaks only.
+  // While OFFLINE the poller keeps running at a slower pace and captures every
+  // order: break spots go to their break, everything else to Offline Orders.
   const offlineEvery = Number(process.env.TIKTOK_OFFLINE_POLL_MS) || 30000;
   let lastOffline = 0;
   let polling = false;
   async function poll() {
     if (!tiktokEnabled() || !tokens.accessToken || !tokens.shopCipher) return;
     if (!queue.live) {
-      if (!(queue.hasOpenBreaks && queue.hasOpenBreaks())) return;
       if (Date.now() - lastOffline < offlineEvery) return;
       lastOffline = Date.now();
     }
@@ -601,7 +610,7 @@ export function startPolling(queue) {
   }
   const timer = setInterval(poll, interval);
   timer.unref?.();
-  console.log(`[tiktok] polling every ${interval}ms while live (every ${offlineEvery}ms offline while a break is open)`);
+  console.log(`[tiktok] polling every ${interval}ms while live, every ${offlineEvery}ms while offline`);
 }
 
 // ---------------- Auth routes ----------------
@@ -662,4 +671,88 @@ export async function tiktokBoot() {
     console.warn('[tiktok] boot token setup failed:', e.message);
   }
   console.log('[tiktok] status:', JSON.stringify(tiktokStatus()));
+}
+
+
+// ---------------- Back office: catalog, price/stock edits, order import ----------------
+// These need the TikTok "Product" scope (catalog / price / inventory). Until the
+// streamer grants it, calls return TikTok's permission error, which the back
+// office shows as "waiting for product access".
+function _err(body) {
+  if (!body) return 'no response from TikTok';
+  if (body.code === 0) return '';
+  return `${body.message || 'TikTok error'} (code ${body.code})`;
+}
+export function productScopeHint(msg) {
+  return /scope|permission|unauthori|access denied|not allowed|105005|36009004/i.test(String(msg || ''));
+}
+export async function fetchCatalog() {
+  if (!tokens.accessToken || !tokens.shopCipher) return { ok: false, error: 'not authorized with TikTok' };
+  const products = [];
+  let pageToken = '';
+  for (let page = 0; page < 60; page++) {
+    const body = await apiCall('POST', `/product/${API_VERSION}/products/search`,
+      { page_size: 100, ...(pageToken ? { page_token: pageToken } : {}) }, { status: 'ALL' });
+    const e = _err(body);
+    if (e) return { ok: false, error: e, needsScope: productScopeHint(e), partial: products };
+    for (const p of (body?.data?.products || [])) {
+      products.push({
+        id: String(p.id), title: p.title || '', status: p.status || '',
+        createdAt: p.create_time ? p.create_time * 1000 : null, updatedAt: p.update_time ? p.update_time * 1000 : null,
+        skus: (p.skus || []).map((k) => ({
+          id: String(k.id), sellerSku: k.seller_sku || '',
+          name: (k.sales_attributes || []).map((a) => a.value_name).filter(Boolean).join(' / '),
+          price: _amount(k.price?.sale_price ?? k.price?.tax_exclusive_price ?? k.price),
+          currency: k.price?.currency || 'USD',
+          stock: (k.inventory || []).reduce((n, w) => n + (Number(w.quantity) || 0), 0),
+          warehouses: (k.inventory || []).map((w) => ({ id: String(w.warehouse_id || ''), qty: Number(w.quantity) || 0 })),
+        })),
+      });
+    }
+    pageToken = body?.data?.next_page_token || '';
+    if (!pageToken) break;
+  }
+  return { ok: true, products };
+}
+export async function updateSkuPrice(productId, skuId, price) {
+  const amt = Number(price);
+  if (!isFinite(amt) || amt <= 0) return { ok: false, error: 'price must be a positive number' };
+  const body = await apiCall('POST', `/product/${API_VERSION}/products/${encodeURIComponent(productId)}/prices/update`, {},
+    { skus: [{ id: String(skuId), price: { amount: amt.toFixed(2), currency: 'USD' } }] });
+  const e = _err(body);
+  return e ? { ok: false, error: e, needsScope: productScopeHint(e) } : { ok: true };
+}
+export async function updateSkuStock(productId, skuId, warehouseId, qty) {
+  const n = Math.floor(Number(qty));
+  if (!isFinite(n) || n < 0) return { ok: false, error: 'stock must be 0 or more' };
+  if (!warehouseId) return { ok: false, error: 'no warehouse on this SKU — sync the catalog first' };
+  const body = await apiCall('POST', `/product/${API_VERSION}/products/${encodeURIComponent(productId)}/inventory/update`, {},
+    { skus: [{ id: String(skuId), inventory: [{ warehouse_id: String(warehouseId), quantity: n }] }] });
+  const e = _err(body);
+  return e ? { ok: false, error: e, needsScope: productScopeHint(e) } : { ok: true };
+}
+/** Pull every order created in [fromMs, toMs) (any status) — for importing past
+ *  sales into the ledger so metrics have history from day one. */
+export async function fetchOrdersRange(fromMs, toMs, onProgress) {
+  if (!tokens.accessToken || !tokens.shopCipher) return { ok: false, error: 'not authorized with TikTok' };
+  const ids = [];
+  let pageToken = '';
+  for (let page = 0; page < 200; page++) {
+    const body = await apiCall('POST', `/order/${API_VERSION}/orders/search`,
+      { page_size: 100, ...(pageToken ? { page_token: pageToken } : {}) },
+      { create_time_ge: Math.floor(fromMs / 1000), create_time_lt: Math.floor(toMs / 1000) });
+    const e = _err(body);
+    if (e) return { ok: false, error: e };
+    for (const o of (body?.data?.orders || [])) ids.push(String(o.id || o.order_id));
+    pageToken = body?.data?.next_page_token || '';
+    if (!pageToken) break;
+  }
+  const orders = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50).filter(Boolean);
+    const body = await apiCall('GET', `/order/${API_VERSION}/orders`, { ids: chunk.join(',') });
+    for (const o of (body?.data?.orders || [])) orders.push(normalizeOrder(o));
+    if (onProgress) onProgress(Math.min(ids.length, i + 50), ids.length);
+  }
+  return { ok: true, orders };
 }

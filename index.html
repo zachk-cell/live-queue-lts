@@ -34,6 +34,7 @@
   button{cursor:pointer;border:none;border-radius:9px;font-size:13px;font-weight:600;padding:9px 14px;
     background:var(--panel2);color:var(--text);border:1px solid var(--line);transition:.12s}
   button:hover{filter:brightness(1.15)}
+  button:disabled{opacity:.45;cursor:default;filter:none}
   button.primary{background:var(--accent2);border-color:var(--accent2)}
   button.ghost{background:transparent}
   .sectitle{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:22px 4px 10px}
@@ -239,6 +240,42 @@
   .tt-banner a{color:#ffd7d7;font-weight:700}
   button.livebtn{background:var(--done);border-color:var(--done);color:#04180d;font-weight:800}
   button.livebtn.off{background:#c23b3b;border-color:#c23b3b;color:#fff}
+  /* ── Offline orders ── */
+  .offwrap{background:var(--panel);border:1px solid #2c5a77;border-radius:12px;padding:12px 14px;margin:14px 0 4px}
+  .off-day{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:12px 2px 4px;display:flex;gap:8px;align-items:center}
+  .off-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;margin-top:6px;flex-wrap:wrap;font-size:13px;background:var(--panel2)}
+  .off-row.sel{border-color:var(--accent)}
+  .off-row.done{opacity:.55}
+  .off-row .oname{font-weight:700}
+  .off-row .oitems{color:#c9d1e3;flex:1 1 260px;min-width:180px}
+  .off-row .oamt{font-weight:700;margin-left:auto}
+  .off-empty{color:var(--muted);font-size:13px;padding:8px 2px}
+  /* ── After-action report card ── */
+  .aarcard{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:linear-gradient(90deg,#16233f,#171a21);border:1px solid #2b4d8f;
+    border-radius:12px;padding:12px 14px;margin:6px 0 14px;text-decoration:none;color:var(--text)}
+  .aarcard:hover{border-color:var(--accent)}
+  .aarcard .aart{font-weight:800}.aarcard .aars{color:var(--muted);font-size:12.5px}
+  .aarcard .aargo{margin-left:auto;font-weight:700;color:#9cc2ff;font-size:13px}
+  /* ── #1 buyer chat ── */
+  .chatbox{position:fixed;right:16px;bottom:16px;width:340px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid #2b4d8f;
+    border-radius:12px;z-index:40;box-shadow:0 14px 40px rgba(0,0,0,.45);display:flex;flex-direction:column;max-height:48vh}
+  .chat-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
+  .chat-head .ct{font-weight:800;font-size:13px}
+  .chat-head .cs{font-size:11px;color:var(--muted);margin-left:auto}
+  .chat-dot{width:8px;height:8px;border-radius:50%;background:#6b7280}
+  .chat-dot.on{background:var(--done);box-shadow:0 0 6px var(--done)}
+  .chat-dot.err{background:var(--danger)}
+  .chat-top{padding:7px 11px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .chat-top b{color:var(--text)}
+  .chat-body{overflow:auto;flex:1;min-height:60px}
+  .chat-msg{padding:7px 11px;border-bottom:1px solid #1f2430;font-size:13px;line-height:1.35}
+  .chat-msg .who{font-weight:700;color:#9cc2ff;margin-right:6px}
+  .chat-msg .when{color:var(--muted);font-size:11px;float:right;margin-left:6px}
+  .chat-msg.me{background:#16233f}
+  .chat-empty{padding:12px;color:var(--muted);font-size:12.5px}
+  .chat-foot{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .chat-foot button{padding:5px 9px;font-size:12px}
+  .chatbox.min .chat-top,.chatbox.min .chat-body,.chatbox.min .chat-foot{display:none}
   .offline-banner{background:#2a1a1a;border:1px solid #5a2a2a;color:#ffb3b3;border-radius:11px;
     padding:11px 14px;margin:6px 0 14px;font-size:13px}
   .ordno{color:#748099;font-variant-numeric:tabular-nums;font-size:11.5px;margin-right:6px}
@@ -330,6 +367,9 @@
 <header>
   <h1><span id="dot" class="dot"></span>LTs Workshop Queue <span id="liveBadge" class="livebadge">OFFLINE</span> <span id="ttStatus" class="ttbadge" style="display:none"></span> <span id="connDot" class="conn ok" title="Live feed connected">● Live feed</span></h1>
   <a href="/guide" target="_blank" class="hdr-link">📖 Guide ↗</a>
+  <a href="{{ADMIN}}/reports" class="hdr-link" title="After-action reports for every stream">📋 Reports</a>
+  <a href="{{ADMIN}}/backoffice" class="hdr-link" title="Inventory, cost, consignment, profitability, exports and sales metrics (separate password)">🔒 Back office</a>
+  <a href="{{ADMIN}}/changelog" class="hdr-link" title="What changed in each update">✨ What's new</a>
   <a href="{{ADMIN}}/logout" class="hdr-link hdr-logout">Log out</a>
   <div class="stats">
     <div class="stat"><b id="s-active">0</b><span>In queue</span></div>
@@ -372,8 +412,10 @@
 
   <div id="variants-admin"></div>
 
+  <a id="aar-card" class="aarcard" style="display:none" href="#"></a>
+
   <div id="offline-banner" class="offline-banner" style="display:none">
-    ⚫ You're <b>offline</b> — new orders are being ignored and won't enter the queue. Hit <b>Go Live</b> to start a fresh queue and begin accepting orders. <span id="offline-brk-note"></span>
+    ⚫ You're <b>offline</b> — orders are still being captured (checked every 30s): <b>break spots</b> go straight into their break, and <b>everything else</b> lands in <b>Offline orders</b> below to check daily, label and ship. Hit <b>Go Live</b> to start a fresh stream queue. <span id="offline-brk-note"></span>
   </div>
 
   <div id="tt-banner" class="offline-banner" style="display:none"></div>
@@ -385,6 +427,17 @@
       <button class="ghost" onclick="openBreakModal('config')" title="Which item words open a break automatically">⚙ Break settings</button>
     </div>
     <div id="brk-list"></div>
+  </div>
+
+  <div id="offline-admin" class="offwrap">
+    <div class="brkhead">
+      <span class="brkh">🌙 Offline orders</span><span class="brkn" id="off-n"></span><span class="sp"></span>
+      <button class="ghost" onclick="offSelectAll()" title="Select every order still waiting">☑ Select all waiting</button>
+      <button class="primary" id="off-print" onclick="offPrintSelected()" title="Print a label for each selected order">🏷 Print labels</button>
+      <button class="ghost" id="off-done" onclick="offDoneSelected()" title="Mark the selected orders handled (labelled + shipped)">✓ Mark handled</button>
+      <button class="ghost" id="off-showdone" onclick="offToggleDone()">Show handled</button>
+    </div>
+    <div id="off-list"></div>
   </div>
 
   <div class="sectitle" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -422,6 +475,19 @@
   </div>
   <div id="cancelled"></div>
 </main>
+
+<div id="chatbox" class="chatbox min">
+  <div class="chat-head" onclick="chatToggle()">
+    <span class="chat-dot" id="chat-dot"></span><span class="ct">💬 #1 buyer chat</span><span class="cs" id="chat-state">off</span>
+  </div>
+  <div class="chat-top" id="chat-top"></div>
+  <div class="chat-body" id="chat-body"></div>
+  <div class="chat-foot">
+    <button class="ghost" id="chat-all" onclick="chatAll()" title="Show every chat message, not just the #1 buyer">Show all chat</button>
+    <button class="ghost" onclick="chatSetUser()" title="The TikTok @username whose LIVE chat to read">@ Set username</button>
+    <button class="ghost" onclick="chatReconnect()">↻ Reconnect</button>
+  </div>
+</div>
 
 <div class="modal" id="confirmModal">
   <div class="card">
@@ -609,7 +675,7 @@
     const uname = e.buyer || 'Buyer';
     const ords = (e.orderIds||[]);
     const ordLine = ords.map(id=>'#'+String(id).slice(-5)).join('   ');
-    const countLine = (e.orderCount>1) ? (e.orderCount+' orders in this batch') : '';
+    const countLine = e.countText || ((e.orderCount>1) ? (e.orderCount+' orders in this batch') : '');
     // Thermal printers only lay down BLACK, and browsers skip background fills
     // unless "Background graphics" is on — so flags are black text in a black
     // outline (no fill, no emoji) to guarantee they print. Multiple can stack.
@@ -714,26 +780,48 @@
       return {...e, _spot: rng, _lbl: (b.capacity ? 'R'+e.round+' · ' : '') + rng};
     });
   }
-  function _breakLabelEntry(b, e){
-    const flags = ['BREAK' + (e._lbl ? ' · ' + e._lbl : '')];
-    if(e.queuePos || e.sameOrder || e.queuePartFulfilled) flags.push('ALSO IN QUEUE');
-    const shortTitle = String(b.title||'Break').replace(/\s*\(\d+\s*-?\s*spots?\)\s*/i,' ').trim();
-    return {
-      buyer: e.buyer, buyerId: e.buyerId, orderIds: [e.orderId], orderCount: 1, priorFulfilled: 0,
-      extraFlags: flags,
-      subLine: shortTitle + ' · ' + e.qty + ' spot' + (e.qty===1?'':'s'),
-    };
+  // Break labels: ONE label per SEAT (a 3-seat order prints Seat 1, 2, 3) plus
+  // ONE "SHIPPING LABEL" per order number. An order split across rounds prints its
+  // shipping label with the piece holding its LAST seat, so every order gets
+  // exactly one — never twice, never missed. Labels = seats + orders.
+  function _shortBreakTitle(b){ return String(b.title||'Break').replace(/\s*\(\d+\s*-?\s*spots?\)\s*/i,' ').trim(); }
+  function _breakLabelsFor(b, e){
+    const out = [];
+    const all = _breakNumbered(b);
+    const before = all.filter(x=>String(x.orderId)===String(e.orderId) && !x.cancelled && (x.part||1) < (e.part||1)).reduce((n,x)=>n+x.qty,0);
+    const total = e.orderQty || e.qty;
+    const alsoQ = (e.queuePos || e.sameOrder || e.queuePartFulfilled) ? ['ALSO IN QUEUE'] : [];
+    for(let i=0;i<e.qty;i++){
+      const spot = e.spotStart ? (e.spotStart + i) : null;
+      out.push({
+        buyer: e.buyer, buyerId: e.buyerId, orderIds: [e.orderId], orderCount: 1, priorFulfilled: 0,
+        extraFlags: ['BREAK' + (spot ? ' · ' + (b.capacity ? 'R'+e.round+' · ' : '') + 'SPOT #'+spot : ''), ...alsoQ],
+        countText: 'SEAT ' + (before + i + 1) + ' OF ' + total,
+        subLine: _shortBreakTitle(b),
+      });
+    }
+    if((e.part||1) === (e.parts||1)){
+      const units = e.orderUnits || total;
+      out.push({
+        buyer: e.buyer, buyerId: e.buyerId, orderIds: [e.orderId], orderCount: 1, priorFulfilled: 0,
+        extraFlags: ['SHIPPING LABEL'],
+        countText: units + ' item' + (units===1?'':'s') + ' in this order',
+        subLine: units > total ? (total + ' break seat' + (total===1?'':'s') + ' + ' + (units-total) + ' other item' + (units-total===1?'':'s')) : _shortBreakTitle(b),
+      });
+    }
+    return out;
   }
+  function _breakLabelCount(b, list){ return list.reduce((n,e)=>n + e.qty + (((e.part||1)===(e.parts||1))?1:0), 0); }
   function printBreakLabel(breakId, segKey){
     const b = (state.breaks||[]).find(x=>x.id===breakId); if(!b) return;
     const e = _breakNumbered(b).find(x=>String(x.segKey)===String(segKey)); if(!e) return;
-    _printLabels([_breakLabelEntry(b, e)]);
+    _printLabels(_breakLabelsFor(b, e));
   }
   function printBreakLabels(breakId, onlySelected){
     const b = (state.breaks||[]).find(x=>x.id===breakId); if(!b) return;
     let list = _breakNumbered(b).filter(e=>!e.cancelled && !e.done);
     if(onlySelected) list = list.filter(e=>selBreak.has(b.id+'|'+e.segKey));
-    _printLabels(list.map(e=>_breakLabelEntry(b, e)));
+    _printLabels(list.flatMap(e=>_breakLabelsFor(b, e)));
     if(onlySelected){ list.forEach(e=>selBreak.delete(b.id+'|'+e.segKey)); breaksSig=''; renderBreaks(); }
   }
   function toggleBreakSel(breakId, segKey){
@@ -791,7 +879,10 @@
         ? `You still have ${n} order${n===1?'':'s'} in the queue that ${n===1?"hasn't":"haven't"} been fulfilled. Ending will archive EVERYTHING (fulfilled, cancelled, and those ${n} unfulfilled) to Past streams and clear the board. New orders stop entering.`
         : 'This archives this stream (fulfilled + cancelled) to Past streams and clears the board. New orders stop entering. You can review or export it anytime from Past streams.') + keepNote;
       if(!(await uiConfirm({title:'End the live?', body, confirmText:'End live', danger:true}))) return;
-      await post('/api/live/off');
+      let r = null; try { r = await (await fetch('/api/live/off',{method:'POST'})).json(); } catch {}
+      if(r && r.reportId && await uiConfirm({title:'Stream ended ✓', body:'Your after-action report for this stream is ready — every buyer, order, item and the sales / revenue breakdown (with consignment shown separately). Open it now?', confirmText:'📋 View report'})){
+        location.href = '{{ADMIN}}/reports#' + encodeURIComponent(r.reportId);
+      }
     }
   }
   async function resetQueue(){
@@ -1346,7 +1437,7 @@
       + partB + offB + qb + cx
       + `<span class="ordno">#${esc(shortId(e.orderId))}</span>`
       + `<span class="bt">${esc(fmtETclock(e.createdAt))}</span>`
-      + (!e.cancelled ? `<button class="undob" title="Print this spot's 2.25×1.25 label" onclick="printBreakLabel('${b.id}','${seg}')">🏷</button>` : '')
+      + (!e.cancelled ? `<button class="undob" title="Print this order's seat labels (one per seat)${(e.part||1)===(e.parts||1)?' + its shipping label':''}" onclick="printBreakLabel('${b.id}','${seg}')">🏷 ${e.qty + (((e.part||1)===(e.parts||1))?1:0)}</button>` : '')
       + (e.done
           ? `<button class="undob" title="Undo — put this spot back to be ripped" onclick="setBreakDone('${b.id}',['${seg}'],false)">↩ Undo</button>`
           : (live ? `<button class="undob bful" title="Mark this spot fulfilled" onclick="setBreakDone('${b.id}',['${seg}'],true)">✓</button>` : ''))
@@ -1392,7 +1483,7 @@
             + `<span class="brk-rmeta"><b>${info.spots} / ${b.capacity}</b> spots${info.doneSpots?` · ${info.doneSpots} done`:''}</span>`
             + (full ? '<span class="badge bdone">FULL</span>' : (r===b.currentRound ? '<span class="badge bother">FILLING</span>' : ''))
             + `<span class="brk-racts">`
-            + `<button class="undob" onclick="printBreakRound('${b.id}',${r})" title="Print labels for every spot left in round ${r}">🏷 Round labels</button>`
+            + `<button class="undob" onclick="printBreakRound('${b.id}',${r})" title="One label per seat + one shipping label per order, for every spot left in round ${r}">🏷 Round labels (${_breakLabelCount(b, es)})</button>`
             + `<button class="undob bful" onclick="fulfilBreakRound('${b.id}',${r})" title="Mark every spot left in round ${r} fulfilled">✓ Round ${r} done (${es.reduce((n,e)=>n+e.qty,0)} spots)</button>`
             + `</span></div>`
             + (shown.map(e=>_brkRow(b,e,isOpen)).join('') || '<div class="brk-empty">No spots in this round match the search.</div>');
@@ -1411,9 +1502,9 @@
       }
       const selActs = nSel
         ? `<button class="ripb" onclick="fulfilBreakSelected('${b.id}')" title="Mark the ticked spots fulfilled">✓ Fulfil ${nSel} selected</button>`
-          + `<button class="primary" onclick="printBreakLabels('${b.id}',true)" title="Print labels for the ticked spots, in rip order">🏷 Print ${nSel} selected</button>`
+          + `<button class="primary" onclick="printBreakLabels('${b.id}',true)" title="One label per seat + one shipping label per order, for the ticked spots">🏷 Print ${nSel} selected</button>`
         : '';
-      const lblActs = active.length ? `<button class="ghost" onclick="printBreakLabels('${b.id}',false)" title="Print a label for every spot still to rip, in rip order">🏷 All labels (${active.length})</button>` : '';
+      const lblActs = active.length ? `<button class="ghost" onclick="printBreakLabels('${b.id}',false)" title="One label per seat + one shipping label per order, in rip order">🏷 All labels (${_breakLabelCount(b, active)})</button>` : '';
       const acts = selActs + lblActs + (isOpen
         ? `<button class="ghost" onclick="renameBreakUI('${b.id}')" title="Edit name / total spots">✎ Edit</button>`
           + `<button class="ghost" onclick="dissolveBreakUI('${b.id}')" title="Not actually a break — send every entry to the live queue">↩ Not a break</button>`
@@ -1452,7 +1543,7 @@
   function printBreakRound(id, r){
     const b = (state.breaks||[]).find(x=>x.id===id); if(!b) return;
     const list = _breakNumbered(b).filter(e=>!e.cancelled && !e.done && e.round===r);
-    _printLabels(list.map(e=>_breakLabelEntry(b, e)));
+    _printLabels(list.flatMap(e=>_breakLabelsFor(b, e)));
   }
   function toggleBreak(id, isOpen){
     const set = isOpen ? collapsedBreaks : expandedRipped;
@@ -1545,7 +1636,7 @@
     document.getElementById('offline-banner').style.display = live ? 'none' : 'block';
     { const ob = (state.breaks||[]).filter(b=>b.status==='open').length;
       const el = document.getElementById('offline-brk-note');
-      if(el) el.innerHTML = (!live && ob) ? `<br>🎟 Still listening for <b>break</b> orders: spots for the ${ob} open break${ob===1?'':'s'} keep coming in below (checked every 30s).` : ''; }
+      if(el) el.innerHTML = (!live && ob) ? `<br>🎟 ${ob} open break${ob===1?'':'s'} still taking spots.` : ''; }
 
     document.getElementById('s-active').textContent = st.activeCount||0;
     document.getElementById('s-pri').textContent = st.priorityCount||0;
@@ -1565,6 +1656,9 @@
 
     renderQueue();
     renderBreaks();
+    renderOffline();
+    renderAarCard();
+    renderChat();
     tickTimers();
     renderVariantsAdmin();
     renderClips();
@@ -1602,6 +1696,131 @@
 
     applyCollapse();
   }
+
+  // ── Offline orders (captured while not live) ──
+  const selOff = new Set();
+  let offShowDone = false, offSig = '';
+  function _etDay(ms){ try { return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric'}).format(new Date(ms)); } catch { return new Date(ms).toDateString(); } }
+  function renderOffline(){
+    const all = state.offline || [];
+    const waiting = all.filter(o=>!o.doneAt && !o.cancelled);
+    const filter = (document.getElementById('search').value||'').toLowerCase().trim();
+    const fAl = filter.replace(/[^a-z0-9]/g,'');
+    const sig = JSON.stringify([all, filter, [...selOff], offShowDone]);
+    if(sig === offSig) return; offSig = sig;
+    for(const k of [...selOff]) if(!waiting.some(o=>o.orderId===k)) selOff.delete(k);
+    const units = waiting.reduce((n,o)=>n+o.units,0);
+    document.getElementById('off-n').textContent = waiting.length ? `${waiting.length} waiting · ${units} item${units===1?'':'s'}` : (all.length ? 'all handled ✓' : '');
+    document.getElementById('off-print').textContent = selOff.size ? `🏷 Print ${selOff.size} label${selOff.size===1?'':'s'}` : '🏷 Print labels';
+    document.getElementById('off-print').disabled = !selOff.size;
+    document.getElementById('off-done').disabled = !selOff.size;
+    document.getElementById('off-showdone').textContent = offShowDone ? 'Hide handled' : 'Show handled';
+    const shown = all.filter(o=>(offShowDone || (!o.doneAt && !o.cancelled)))
+      .filter(o=>!filter || (o.buyer||'').toLowerCase().includes(filter) || (o.buyerHandle||'').toLowerCase().includes(filter) || (fAl && String(o.orderId).toLowerCase().includes(fAl)));
+    const el = document.getElementById('off-list');
+    if(!shown.length){ el.innerHTML = `<div class="off-empty">${all.length ? (filter?'No offline orders match the search.':'Nothing waiting — every offline order is handled.') : 'No offline orders. Anything bought while you\'re not live shows up here.'}</div>`; return; }
+    let html = '', day = '';
+    for(const o of shown){
+      const d = _etDay(o.createdAt);
+      if(d !== day){ day = d; html += `<div class="off-day">${esc(d)}</div>`; }
+      const items = o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.cancelled?' <span class="badge hold">cancelled</span>':''}`).join(', ');
+      const badges = (o.cancelRequested?'<span class="badge hold">⚠ CANCEL REQ</span>':'') + (o.onHold?'<span class="badge onhold">⏸ ON HOLD</span>':'')
+        + (o.breakSpots?`<span class="badge bother" title="This order also bought ${o.breakSpots} spot(s) in ${esc(o.breakTitle)} — those are in the break above">🎟 + ${o.breakSpots} break spot${o.breakSpots===1?'':'s'}</span>`:'')
+        + (o.cancelled?'<span class="badge hold">CANCELLED</span>':'');
+      const live = !o.doneAt && !o.cancelled;
+      html += `<div class="off-row${selOff.has(o.orderId)?' sel':''}${o.doneAt?' done':''}">`
+        + (live?`<input type="checkbox" ${selOff.has(o.orderId)?'checked':''} onchange="offSel('${esc(o.orderId)}')">`:'<span style="width:13px"></span>')
+        + `<span class="oname">${esc(o.buyer)}</span>${o.buyerHandle?`<span class="bh">@${esc(o.buyerHandle)}</span>`:''}`
+        + `<span class="oitems">${items}</span>${badges}`
+        + `<span class="ordno">#${esc(shortId(o.orderId))}</span><span class="bt">${esc(fmtETclock(o.createdAt))}</span>`
+        + `<span class="oamt">${money(o.total)}</span>`
+        + (!o.cancelled?`<button class="undob" title="Print this order's label" onclick="offPrint(['${esc(o.orderId)}'])">🏷</button>`:'')
+        + (live?`<button class="undob bful" title="Mark handled (labelled + shipped)" onclick="offDone(['${esc(o.orderId)}'],true)">✓</button>`
+               :(o.doneAt?`<button class="undob" title="Undo — back to waiting" onclick="offDone(['${esc(o.orderId)}'],false)">↩ Undo</button>`:''))
+        + `</div>`;
+    }
+    el.innerHTML = html;
+  }
+  function offSel(id){ if(selOff.has(id)) selOff.delete(id); else selOff.add(id); offSig=''; renderOffline(); }
+  function offSelectAll(){
+    const waiting = (state.offline||[]).filter(o=>!o.doneAt && !o.cancelled).map(o=>o.orderId);
+    const allSel = waiting.length && waiting.every(id=>selOff.has(id));
+    selOff.clear(); if(!allSel) waiting.forEach(id=>selOff.add(id));
+    offSig=''; renderOffline();
+  }
+  function offToggleDone(){ offShowDone = !offShowDone; offSig=''; renderOffline(); }
+  function offPrint(ids){
+    const list = (state.offline||[]).filter(o=>ids.includes(o.orderId));
+    _printLabels(list.map(o=>({ buyer:o.buyer, buyerId:o.buyerId, orderIds:[o.orderId], orderCount:1, priorFulfilled:0,
+      extraFlags:['OFFLINE ORDER'], countText: o.units + ' item' + (o.units===1?'':'s'),
+      subLine: o.items.filter(i=>!i.cancelled).map(i=>i.qty+'× '+i.name).join(', ') })));
+  }
+  function offPrintSelected(){ if(selOff.size) offPrint([...selOff]); }
+  async function offDone(ids, done){
+    ids.forEach(id=>selOff.delete(id));
+    await postJSON('/api/offline/done', {orderIds: ids, done});
+  }
+  async function offDoneSelected(){
+    if(!selOff.size) return;
+    const n = selOff.size;
+    if(await uiConfirm({title:`Mark ${n} order${n===1?'':'s'} handled?`, body:'They move out of the waiting list (you can show and undo handled orders any time).', confirmText:'✓ Mark handled'})) offDone([...selOff], true);
+  }
+
+  // ── After-action report card ──
+  function renderAarCard(){
+    const el = document.getElementById('aar-card');
+    const id = state.lastStreamId;
+    if(!id){ el.style.display='none'; return; }
+    if(el._id === id) return;
+    el._id = id;
+    const when = (()=>{ try { return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(Number(id))); } catch { return ''; } })();
+    el.href = '{{ADMIN}}/reports#' + encodeURIComponent(id);
+    el.innerHTML = `<span style="font-size:20px">📋</span><span><div class="aart">View prior stream after-action report</div><div class="aars">${esc(when)} ET · buyers, orders, items, sales & revenue</div></span><span class="aargo">Open →</span>`;
+    el.style.display = 'flex';
+  }
+
+  // ── #1 buyer chat (read-only TikTok LIVE chat) ──
+  let chatMsgs = [], chatStatus = {state:'off'}, chatShowAll = false, chatSig = '';
+  try { if(localStorage.getItem('ltsChatOpen')==='1') document.getElementById('chatbox').classList.remove('min'); } catch {}
+  const _cn = (s)=>String(s||'').toLowerCase().replace(/^@/,'').trim();
+  const _ca = (s)=>_cn(s).replace(/[^a-z0-9._]/g,'');
+  function chatIsTop(m, top){
+    if(!top) return false;
+    const names = [top.buyer, top.buyerHandle].filter(Boolean);
+    return names.some(n => (_cn(n) && (_cn(n)===_cn(m.handle) || _cn(n)===_cn(m.nickname))) || (_ca(n) && (_ca(n)===_ca(m.handle) || _ca(n)===_ca(m.nickname))));
+  }
+  function renderChat(){
+    const top = (state.queue||[])[0] || null;
+    const st = chatStatus || {};
+    const sig = JSON.stringify([chatMsgs.length, chatMsgs.length?chatMsgs[chatMsgs.length-1].id:'', st.state, st.error, top?top.key:'', chatShowAll]);
+    if(sig === chatSig) return; chatSig = sig;
+    const dot = document.getElementById('chat-dot');
+    dot.className = 'chat-dot' + (st.state==='connected'?' on':(st.state==='error'?' err':''));
+    document.getElementById('chat-state').textContent = st.state==='connected' ? ('reading @'+(st.username||'')) : st.state==='connecting' ? 'connecting…' : st.state==='offline' ? 'stream not live' : st.state==='error' ? 'disconnected' : 'off';
+    document.getElementById('chat-top').innerHTML = chatShowAll ? 'Showing <b>all chat</b>'
+      : (top ? `Showing messages from <b>#1 · ${esc(top.buyer)}</b>${top.buyerHandle?` (@${esc(top.buyerHandle)})`:''}` : 'Nobody in the queue yet.');
+    document.getElementById('chat-all').textContent = chatShowAll ? 'Only #1 buyer' : 'Show all chat';
+    const list = chatShowAll ? chatMsgs.slice(-80) : chatMsgs.filter(m=>chatIsTop(m, top)).slice(-40);
+    const body = document.getElementById('chat-body');
+    if(!list.length){
+      body.innerHTML = `<div class="chat-empty">${st.state==='connected' ? (top&&!chatShowAll?'No messages from the #1 buyer yet.':'No chat yet.') : esc(st.error || 'Chat connects automatically when you go live (set the @username first).')}</div>`;
+      return;
+    }
+    body.innerHTML = list.map(m=>`<div class="chat-msg${chatIsTop(m, top)?' me':''}"><span class="when">${esc(fmtETclock(m.at))}</span><span class="who">${esc(m.nickname||m.handle)}</span>${m.handle?`<span class="bh">@${esc(m.handle)}</span> `:''}${esc(m.text)}</div>`).join('');
+    body.scrollTop = body.scrollHeight;
+  }
+  function chatToggle(){ const b=document.getElementById('chatbox'); b.classList.toggle('min'); try{ localStorage.setItem('ltsChatOpen', b.classList.contains('min')?'0':'1'); }catch{} chatSig=''; renderChat(); }
+  function chatAll(){ chatShowAll = !chatShowAll; chatSig=''; renderChat(); }
+  async function chatSetUser(){
+    let cur=''; try{ cur = (await (await fetch('/api/chat')).json()).username || ''; }catch{}
+    const u = prompt('TikTok @username whose LIVE chat to read (the LTs streaming account):', cur ? '@'+cur : '');
+    if(u===null) return;
+    await postJSON('/api/chat/username', {username: u});
+  }
+  async function chatReconnect(){ await postJSON('/api/chat/connect', {}); }
+  socket.on('chat-init', (d)=>{ chatMsgs = (d && d.messages) || []; chatStatus = (d && d.status) || chatStatus; chatSig=''; renderChat(); });
+  socket.on('chat', (m)=>{ chatMsgs.push(m); if(chatMsgs.length>300) chatMsgs.splice(0, chatMsgs.length-300); renderChat(); });
+  socket.on('chat-status', (s)=>{ chatStatus = s; chatSig=''; renderChat(); });
 
   render();
 
