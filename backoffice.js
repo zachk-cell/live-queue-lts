@@ -204,22 +204,22 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
     importing = { done: 0, total: 0, started: Date.now() };
     res.json({ ok: true, started: true, days });
     try {
-      let added = 0, cancelled = 0, err = '';
+      let added = 0, cancelled = 0, linked = 0, err = '';
       // Month-sized windows keep each search well inside TikTok's limits.
       for (let a = from; a < to; a += 30 * 86400000) {
         const b = Math.min(to, a + 30 * 86400000);
         const r = await fetchOrdersRange(a, b, (d, t) => { importing.done = d; importing.total = t; });
         if (!r.ok) { err = r.error; break; }
         for (const o of r.orders) {
-          if (ledger.orders[String(o.id)]) continue;
+          if (ledger.orders[String(o.id)]) { linked += ledger.backfillIds(o); continue; }
           const s = ledger.streamAt(o.createdAt);
           ledger.recordOrder(o, { channel: s ? 'live' : 'offline', streamId: s ? s.id : null, source: 'import' });
           if (/CANCEL/i.test(o.status || '')) { ledger.markCancelled(o.id, o.createdAt); cancelled++; }
           added++;
         }
       }
-      ledger.bo.lastImport = { at: Date.now(), added, cancelled, days, ...(err ? { error: err } : {}) };
-      ledger.log({ kind: 'import', key: 'orders', label: 'TikTok order import', field: `last ${days} days`, from: null, to: `${added} orders added` });
+      ledger.bo.lastImport = { at: Date.now(), added, cancelled, linked, days, ...(err ? { error: err } : {}) };
+      ledger.log({ kind: 'import', key: 'orders', label: 'TikTok order import', field: `last ${days} days`, from: null, to: `${added} orders added, ${linked} older lines linked to inventory` });
       ledger.flush(); ledger.saveBo();
     } catch (e) { ledger.bo.lastImport = { at: Date.now(), error: e.message, days }; ledger.saveBo(); }
     finally { importing = null; }

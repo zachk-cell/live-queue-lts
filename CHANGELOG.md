@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 27, 2026 (afternoon) — Product access is live
+- The LTs shop re-authorized the app, and every permission the back office needs is now granted, including Product (price and stock editing).
+- **Inventory synced:** 68 listings with live prices and stock. Today's stock snapshot is saved, so time-to-sell starts counting from here.
+- **Order import now links older sales to inventory.** Orders saved before TikTok ids were captured get their product and SKU ids filled in, so ⭐ priority, cost and the per-item metrics cover your full history. Money, status and stream credit are never changed.
+
 ## November 27, 2026 (overnight) — Lighter offline checking
 - While offline, the queue now checks TikTok for new orders **every 5 minutes** instead of every 30 seconds, which cuts background traffic.
 - **Nothing is missed:** offline orders just appear up to 5 minutes later.

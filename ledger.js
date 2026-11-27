@@ -173,6 +173,26 @@ export class Ledger {
     this.save();
     return rec;
   }
+  /** Fill in TikTok product/SKU ids on an order we already have (older history
+   *  lines were saved before ids were captured). Matches lines by name; never
+   *  touches money, status, stream or consignment stamps. Returns lines filled. */
+  backfillIds(raw) {
+    const prev = raw && this.orders[String(raw.id)];
+    if (!prev) return 0;
+    const pool = (raw.items || []).filter((x) => x.skuId || x.productId);
+    let n = 0;
+    for (const it of prev.items) {
+      if (it.skuId) continue;
+      const m = pool.find((x) => String(x.name || '') === it.name) || pool.find((x) => normName(x.name) === normName(it.name));
+      if (!m) continue;
+      it.productId = m.productId ? String(m.productId) : it.productId || '';
+      it.skuId = m.skuId ? String(m.skuId) : '';
+      if (m.sku && !it.sku) it.sku = String(m.sku);
+      n++;
+    }
+    if (n) this.save();
+    return n;
+  }
   markCancelled(orderId, at = Date.now()) {
     const o = this.orders[String(orderId)];
     if (!o || o.status === 'cancelled') return false;

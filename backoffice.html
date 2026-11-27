@@ -570,7 +570,7 @@ function renderSettings(){
   <div class="card"><h2>Import past TikTok orders</h2>
     <p class="small muted" style="margin-top:0">Pulls every order from TikTok for the period you pick into the sales history, so metrics and exports cover more than what the queue has seen. Safe to run again — nothing is duplicated. Orders that fall inside a recorded stream count as live; others as offline.</p>
     <div class="row"><select id="idays" style="width:auto"><option value="30">Last 30 days</option><option value="90" selected>Last 90 days</option><option value="180">Last 6 months</option><option value="365">Last 12 months</option></select><button id="igo">⬇ Import</button></div>
-    <p class="small" id="imsg">${li ? (li.error?`<span style="color:var(--bad)">Last import failed: ${esc(li.error)}</span>`:`Last import ${esc(fmtD(li.at,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))}: ${int(li.added)} orders added (last ${li.days} days).`) : '<span class="muted">Not run yet.</span>'}</p></div>
+    <p class="small" id="imsg">${li ? (li.error?`<span style="color:var(--bad)">Last import failed: ${esc(li.error)}</span>`:`Last import ${esc(fmtD(li.at,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))}: ${int(li.added)} orders added${li.linked?`, ${int(li.linked)} older lines linked to inventory`:''} (last ${li.days} days).`) : '<span class="muted">Not run yet.</span>'}</p></div>
   <div class="card"><h2>TikTok permissions</h2>
     <p class="small muted" style="margin-top:0">Checks which API permissions the LTs shop granted this app, and proves each with a harmless read. Changes nothing.</p>
     <button id="permgo">Check TikTok permissions</button><div id="permout" class="small" style="margin-top:10px"></div></div>
