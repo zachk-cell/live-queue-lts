@@ -17,7 +17,7 @@ import { Server as IOServer } from 'socket.io';
 import { authenticator } from 'otplib';
 
 import { QueueEngine } from './queue.js';
-import { tiktokEnabled, mountAuth, startPolling, tiktokBoot, tiktokStatus, tiktokTokensForEnv, debugShops, refetchShopCipher, debugRawOrder, debugCancellations, backfillRecent, auditOrders, checkPermissions } from './tiktok.js';
+import { tiktokEnabled, mountAuth, startPolling, tiktokBoot, tiktokStatus, tiktokTokensForEnv, debugShops, refetchShopCipher, debugRawOrder, debugCancellations, probeOrderMoney, backfillRecent, auditOrders, checkPermissions } from './tiktok.js';
 import { startDiscord, discordEnabled } from './discord.js';
 import { startSimulator } from './simulator.js';
 import { Ledger } from './ledger.js';
@@ -640,6 +640,9 @@ app.post('/api/tiktok-backfill', requireAuth, async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 // Debug: inspect one raw order's handle-ish fields to confirm the username key (admin only).
+app.get('/api/tiktok-money-probe', requireAuth, async (req, res) => {
+  try { res.json(await probeOrderMoney(req.query.id)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/tiktok-raw-order', requireAuth, async (_req, res) => {
   try { res.json(await debugRawOrder()); }
   catch (e) { res.status(500).json({ error: e.message }); }

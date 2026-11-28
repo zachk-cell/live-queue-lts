@@ -791,3 +791,34 @@ export async function checkPermissions({ refresh = false } = {}) {
   ];
   return { ok: true, shop: tokens.sellerName || tokens.shopId || '', grantedScopes: scopes, scopesAt: tokens.scopesAt || null, refreshError, probes, features };
 }
+
+// ── Admin probe: money fields for one order (prices, discounts, settlement,
+// returns). Strips anything that looks like personal data — only amounts, ids,
+// statuses and timestamps come back. Used to map TikTok's real field names.
+export async function probeOrderMoney(orderId) {
+  const id = String(orderId || '').trim();
+  const PII = /name|phone|email|address|zip|postal|district|city|line\d|full_address|recipient|buyer_message|user_id|buyer_uid|tracking|nickname|avatar|cpf/i;
+  const clean = (v, depth = 0) => {
+    if (depth > 6 || v == null) return v;
+    if (Array.isArray(v)) return v.slice(0, 20).map((x) => clean(x, depth + 1));
+    if (typeof v === 'object') {
+      const out = {};
+      for (const [k, x] of Object.entries(v)) { if (PII.test(k)) { out[k] = '[redacted]'; continue; } out[k] = clean(x, depth + 1); }
+      return out;
+    }
+    return v;
+  };
+  const out = { id };
+  const tries = [
+    ['order', 'GET', `/order/${API_VERSION}/orders`, { ids: id }, null],
+    ['finance_202309_order', 'GET', `/finance/202309/orders/${id}/statement_transactions`, {}, null],
+    ['finance_202501_order', 'GET', `/finance/202501/orders/${id}/statement_transactions`, {}, null],
+    ['returns', 'POST', `/return_refund/202309/returns/search`, { page_size: 20 }, { order_id: id }],
+    ['cancellations', 'POST', `/return_refund/202309/cancellations/search`, { page_size: 20 }, { order_id: id }],
+  ];
+  for (const [k, m, p, q, b] of tries) {
+    try { const body = await apiCall(m, p, q, b); out[k] = { code: body && body.code, message: body && body.message, data: clean(body && body.data) }; }
+    catch (e) { out[k] = { error: e.message }; }
+  }
+  return out;
+}
