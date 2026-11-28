@@ -266,26 +266,63 @@
   .aarcard:hover{border-color:var(--accent)}
   .aarcard .aart{font-weight:800}.aarcard .aars{color:var(--muted);font-size:12.5px}
   .aarcard .aargo{margin-left:auto;font-weight:700;color:#9cc2ff;font-size:13px}
-  /* ── #1 buyer chat ── */
-  .chatbox{position:fixed;right:16px;bottom:16px;width:340px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid #2b4d8f;
-    border-radius:12px;z-index:40;box-shadow:0 14px 40px rgba(0,0,0,.45);display:flex;flex-direction:column;max-height:48vh}
-  .chat-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
-  .chat-head .ct{font-weight:800;font-size:13px}
-  .chat-head .cs{font-size:11px;color:var(--muted);margin-left:auto}
-  .chat-dot{width:8px;height:8px;border-radius:50%;background:#6b7280}
+  /* ── chat box (#1 buyer / all chat / search) ── */
+  .chatbox{position:fixed;right:16px;bottom:16px;width:360px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid #2b4d8f;
+    border-radius:14px;z-index:40;box-shadow:0 14px 40px rgba(0,0,0,.45);display:flex;flex-direction:column;height:min(560px,62vh);overflow:hidden}
+  .chatbox.min{height:auto}
+  .chat-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none;background:linear-gradient(180deg,rgba(43,77,143,.25),transparent)}
+  .chat-head .ct{font-weight:800;font-size:13.5px}
+  .chat-head .cs{font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+  .chat-caret{color:var(--muted);font-size:11px;width:12px;text-align:center}
+  .chat-dot{width:8px;height:8px;border-radius:50%;background:#6b7280;flex:none}
   .chat-dot.on{background:var(--done);box-shadow:0 0 6px var(--done)}
+  .chat-dot.wait{background:#f5b84a}
   .chat-dot.err{background:var(--danger)}
-  .chat-top{padding:7px 11px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .chat-tabs{display:flex;align-items:center;gap:4px;padding:0 10px 8px}
+  .chat-tabs > button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:4px 11px;font-size:12px;font-weight:700}
+  .chat-tabs > button.on{background:#2b4d8f;border-color:#2b4d8f;color:#fff}
+  .chat-tools{margin-left:auto;display:flex;gap:4px}
+  .chatbox button.icon{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;width:28px;height:26px;padding:0;font-size:12.5px;font-weight:800;line-height:1}
+  .chatbox button.icon:hover{color:var(--text);border-color:#3a4256}
+  .chat-set{display:none;margin:0 10px 10px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#121722}
+  .chatbox.set .chat-set{display:block}
+  .chatbox.set #chat-gear{color:#fff;background:#2b4d8f;border-color:#2b4d8f}
+  .cs-h{font-weight:800;font-size:12.5px;margin-bottom:8px}
+  .cs-l{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+  .cs-row{display:flex;align-items:center;gap:6px}
+  .cs-at{color:var(--muted);font-weight:800}
+  .cs-row input{flex:1;min-width:0;background:#0f131b;border:1px solid var(--line);border-radius:8px;color:var(--text);padding:6px 8px;font-size:12.5px}
+  .cs-btn{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .cs-btn.primary{background:#2b4d8f;border-color:#2b4d8f;color:#fff}
+  .cs-note{font-size:11px;color:var(--muted);line-height:1.45;margin-top:6px}
+  .cs-stat{flex:1;font-size:11.5px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cs-done{text-align:right;margin-top:10px}
+  .chatbox.min .chat-set{display:none}
+  .chat-search{position:relative;padding:0 10px 8px}
+  .chat-search input{width:100%;box-sizing:border-box;background:#0f131b;border:1px solid var(--line);border-radius:9px;color:var(--text);padding:7px 30px 7px 30px;font-size:12.5px}
+  .chat-search input:focus{outline:none;border-color:#3d6bc4}
+  .chat-search .mag{position:absolute;left:20px;top:7px;font-size:12px;opacity:.55;pointer-events:none}
+  .chat-search #chat-qx{position:absolute;right:14px;top:3px;border:none;width:24px;height:24px;display:none}
+  .chat-search.has #chat-qx{display:block}
+  .chat-top{padding:6px 12px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#121722;display:flex;gap:6px;align-items:center;min-height:16px}
   .chat-top b{color:var(--text)}
-  .chat-body{overflow:auto;flex:1;min-height:60px}
-  .chat-msg{padding:7px 11px;border-bottom:1px solid #1f2430;font-size:13px;line-height:1.35}
-  .chat-msg .who{font-weight:700;color:#9cc2ff;margin-right:6px}
-  .chat-msg .when{color:var(--muted);font-size:11px;float:right;margin-left:6px}
-  .chat-msg.me{background:#16233f}
-  .chat-empty{padding:12px;color:var(--muted);font-size:12.5px}
-  .chat-foot{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);flex-wrap:wrap}
-  .chat-foot button{padding:5px 9px;font-size:12px}
-  .chatbox.min .chat-top,.chatbox.min .chat-body,.chatbox.min .chat-foot{display:none}
+  .chat-top .tbadge{background:#2b4d8f;color:#fff;border-radius:6px;padding:1px 6px;font-weight:800;font-size:10.5px}
+  .chat-body{overflow:auto;flex:1;min-height:80px;padding:4px 0;scroll-behavior:auto}
+  .cm{padding:6px 12px;font-size:13px;line-height:1.4;border-left:3px solid transparent}
+  .cm + .cm{border-top:1px solid #1b2030}
+  .cm.me{background:rgba(43,77,143,.22);border-left-color:#5b8cff}
+  .cm-h{display:flex;align-items:baseline;gap:6px;min-width:0}
+  .cm-n{font-weight:800;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+  .cm-n:hover{text-decoration:underline}
+  .cm-u{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .cm-b{background:#5b8cff;color:#fff;border-radius:5px;padding:0 5px;font-size:10px;font-weight:800;flex:none}
+  .cm-t{color:var(--muted);font-size:10.5px;flex:none;margin-left:auto}
+  .cm-x{color:#e6e9ef;word-wrap:break-word;overflow-wrap:anywhere;margin-top:1px}
+  .cm-x mark{background:#f5b84a;color:#111;border-radius:3px;padding:0 1px}
+  .chat-empty{padding:18px 14px;color:var(--muted);font-size:12.5px;text-align:center;line-height:1.5}
+  .chat-jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:none;border:none;border-radius:999px;background:#5b8cff;color:#fff;font-weight:800;font-size:12px;padding:6px 12px;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+  .chat-jump.show{display:block}
+  .chatbox.min .chat-tabs,.chatbox.min .chat-search,.chatbox.min .chat-top,.chatbox.min .chat-body,.chatbox.min .chat-jump{display:none}
   .offline-banner{background:#2a1a1a;border:1px solid #5a2a2a;color:#ffb3b3;border-radius:11px;
     padding:11px 14px;margin:6px 0 14px;font-size:13px}
   .ordno{color:#748099;font-variant-numeric:tabular-nums;font-size:11.5px;margin-right:6px}
@@ -488,16 +525,26 @@
 </main>
 
 <div id="chatbox" class="chatbox min">
-  <div class="chat-head" onclick="chatToggle()">
-    <span class="chat-dot" id="chat-dot"></span><span class="ct">💬 #1 buyer chat</span><span class="cs" id="chat-state">off</span>
+  <div class="chat-head" onclick="chatToggle()" title="Show / hide chat">
+    <span class="chat-dot" id="chat-dot"></span><span class="ct">💬 Chat</span><span class="cs" id="chat-state">off</span><span class="chat-caret" id="chat-caret">▴</span>
   </div>
+  <div class="chat-tabs">
+    <button id="chat-tab-top" class="on" onclick="chatMode(false)" title="Only messages from whoever is #1 in the queue">#1 buyer</button>
+    <button id="chat-tab-all" onclick="chatMode(true)" title="Every chat message">All chat</button>
+    <span class="chat-tools"><button class="icon" id="chat-gear" onclick="chatSettings()" title="Chat settings">⚙</button></span>
+  </div>
+  <div class="chat-set" id="chat-set">
+    <div class="cs-h">Chat settings</div>
+    <label class="cs-l" for="chat-user">LIVE account to read</label>
+    <div class="cs-row"><span class="cs-at">@</span><input id="chat-user" placeholder="ltsworkshop" autocomplete="off" spellcheck="false"><button class="cs-btn primary" onclick="chatSaveUser()">Save</button></div>
+    <div class="cs-note">The LTs streaming account. It follows whoever is #1 in the queue by itself — this only changes if the stream moves to a different account.</div>
+    <div class="cs-row" style="margin-top:10px"><span class="cs-stat" id="chat-stat"></span><button class="cs-btn" onclick="chatReconnect()">↻ Reconnect</button></div>
+    <div class="cs-done"><button class="cs-btn" onclick="chatSettings(false)">Done</button></div>
+  </div>
+  <div class="chat-search" id="chat-search"><span class="mag">🔍</span><input id="chat-q" type="text" placeholder="Search chat — words, name or @handle" autocomplete="off" spellcheck="false"><button class="icon" id="chat-qx" onclick="chatClearSearch()" title="Clear search">✕</button></div>
   <div class="chat-top" id="chat-top"></div>
   <div class="chat-body" id="chat-body"></div>
-  <div class="chat-foot">
-    <button class="ghost" id="chat-all" onclick="chatAll()" title="Show every chat message, not just the #1 buyer">Show all chat</button>
-    <button class="ghost" onclick="chatSetUser()" title="The TikTok @username whose LIVE chat to read">@ Set username</button>
-    <button class="ghost" onclick="chatReconnect()">↻ Reconnect</button>
-  </div>
+  <button class="chat-jump" id="chat-jump" onclick="chatJump()">↓ New messages</button>
 </div>
 
 <div class="modal" id="confirmModal">
@@ -1844,37 +1891,117 @@
     if(hit && m.handle){ if(!chatLearned.has(top.buyerId)) chatLearned.set(top.buyerId, new Set()); chatLearned.get(top.buyerId).add(_cn(m.handle)); }
     return hit;
   }
-  function renderChat(){
+  // Search: server keeps the whole stream's chat (thousands of messages, survives
+  // restarts); typing searches all of it. New live messages that match are added.
+  let chatQ = '', chatResults = null, chatSearchMeta = null, chatSearchT = null, chatUnseen = 0;
+  const _sn = (s)=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const chatWords = ()=> _sn(chatQ).replace(/^@/,'').split(/\s+/).filter(Boolean);
+  const chatMatches = (m)=>{ const h=_sn(`${m.text} ${m.nickname} ${m.handle} @${m.handle}`); return chatWords().every(w=>h.includes(w)); };
+  function chatHue(s){ let h=0; for(const c of String(s||'')) h=(h*31+c.codePointAt(0))>>>0; return h%360; }
+  function chatHi(text){
+    const t = esc(text); const ws = chatWords().filter(w=>w.length>1);
+    if(!ws.length) return t;
+    const re = new RegExp('(' + ws.map(w=>esc(w).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')', 'gi');
+    return t.replace(re, '<mark>$1</mark>');
+  }
+  async function chatRunSearch(){
+    const q = chatQ;
+    if(!q){ chatResults = null; chatSearchMeta = null; chatSig=''; renderChat(true); return; }
+    try{
+      const r = await (await fetch('/api/chat/search?q='+encodeURIComponent(q)+'&limit=400')).json();
+      if(q !== chatQ) return; // a newer search is on its way
+      chatResults = r.messages || []; chatSearchMeta = r;
+    }catch{ chatResults = chatMsgs.filter(chatMatches); chatSearchMeta = {total: chatResults.length}; }
+    chatSig=''; renderChat(true);
+  }
+  function renderChat(forceBottom){
     const top = (state.queue||[])[0] || null;
     const st = chatStatus || {};
-    const sig = JSON.stringify([chatMsgs.length, chatMsgs.length?chatMsgs[chatMsgs.length-1].id:'', st.state, st.error, top?top.key:'', chatShowAll]);
-    if(sig === chatSig) return; chatSig = sig;
+    const sig = JSON.stringify([chatMsgs.length, chatMsgs.length?chatMsgs[chatMsgs.length-1].id:'', st.state, st.error, top?top.key:'', chatShowAll, chatQ, chatResults?chatResults.length:-1]);
+    if(sig === chatSig && !forceBottom) return; chatSig = sig;
+    const box = document.getElementById('chatbox');
+    document.getElementById('chat-caret').textContent = box.classList.contains('min') ? '▴' : '▾';
     const dot = document.getElementById('chat-dot');
-    dot.className = 'chat-dot' + (st.state==='connected'?' on':(st.state==='error'?' err':''));
-    document.getElementById('chat-state').textContent = st.state==='connected' ? ('reading @'+(st.username||'')) : st.state==='connecting' ? 'connecting…' : st.state==='offline' ? 'stream not live' : st.state==='error' ? 'disconnected' : 'off';
-    document.getElementById('chat-top').innerHTML = chatShowAll ? 'Showing <b>all chat</b>'
-      : (top ? `Showing messages from <b>#1 · ${esc(top.buyer)}</b>${top.buyerHandle?` (@${esc(top.buyerHandle)})`:''}` : 'Nobody in the queue yet.');
-    document.getElementById('chat-all').textContent = chatShowAll ? 'Only #1 buyer' : 'Show all chat';
-    const list = chatShowAll ? chatMsgs.slice(-80) : chatMsgs.filter(m=>chatIsTop(m, top)).slice(-40);
+    dot.className = 'chat-dot' + (st.state==='connected'?' on':st.state==='connecting'?' wait':(st.state==='error'?' err':''));
+    document.getElementById('chat-state').textContent = st.state==='connected' ? ('live · @'+(st.username||'')) : st.state==='connecting' ? 'connecting…' : st.state==='offline' ? 'stream not live' : st.state==='error' ? 'not connected' : 'off';
+    const cst = document.getElementById('chat-stat');
+    if(cst) cst.textContent = st.state==='connected' ? `✓ Connected to @${st.username||''}` : st.state==='connecting' ? 'Connecting…' : st.state==='offline' ? 'Stream not live' : st.state==='error' ? ('Not connected' + (st.error ? ' — ' + st.error.split(' — ')[0] : '')) : 'Off';
+    if(cst) cst.title = st.error || '';
+    document.getElementById('chat-tab-top').classList.toggle('on', !chatShowAll);
+    document.getElementById('chat-tab-all').classList.toggle('on', chatShowAll);
+    document.getElementById('chat-search').classList.toggle('has', !!chatQ);
+    const searching = !!chatQ;
+    let list, topLine;
+    if(searching){
+      const base = chatResults || [];
+      list = chatShowAll ? base : base.filter(m=>chatIsTop(m, top));
+      const n = chatShowAll ? (chatSearchMeta ? chatSearchMeta.total : list.length) : list.length;
+      topLine = `🔍 <b>${n} match${n===1?'':'es'}</b>${chatShowAll?'':' from #1'}${chatSearchMeta&&chatSearchMeta.oldest?` · searching since ${esc(fmtETclock(chatSearchMeta.oldest))}`:''}${chatShowAll&&n>list.length?` · newest ${list.length} shown`:''}`;
+    } else if(chatShowAll){
+      list = chatMsgs.slice(-150);
+      topLine = `<b>All chat</b> · ${chatMsgs.length} message${chatMsgs.length===1?'':'s'}${top?` · #1 is <b>${esc(top.buyer)}</b>`:''}`;
+    } else {
+      list = chatMsgs.filter(m=>chatIsTop(m, top)).slice(-60);
+      topLine = top ? `<span class="tbadge">#1</span> <b>${esc(top.buyer)}</b>${top.buyerHandle?` <span>@${esc(top.buyerHandle)}</span>`:''}` : 'Nobody in the queue yet.';
+    }
+    document.getElementById('chat-top').innerHTML = topLine;
     const body = document.getElementById('chat-body');
+    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
     if(!list.length){
-      body.innerHTML = `<div class="chat-empty">${st.state==='connected' ? (top&&!chatShowAll?'No messages from the #1 buyer yet.':'No chat yet.') : esc(st.error || 'Chat connects automatically when you go live (set the @username first).')}</div>`;
+      const why = st.state==='connected'
+        ? (searching ? `Nothing matches “${esc(chatQ)}”.` : (!chatShowAll && top ? `No messages from <b>${esc(top.buyer)}</b> yet.<br><span style="font-size:11.5px">Tap <b>All chat</b> to see everyone.</span>` : 'Waiting for chat…'))
+        : (searching ? `Nothing matches “${esc(chatQ)}”.` : esc(st.error ? 'Not connected — tap ↻ to retry.' : 'Chat connects automatically when you go live.'));
+      body.innerHTML = `<div class="chat-empty">${why}</div>`;
+      document.getElementById('chat-jump').classList.remove('show'); chatUnseen = 0;
       return;
     }
-    body.innerHTML = list.map(m=>`<div class="chat-msg${chatIsTop(m, top)?' me':''}"><span class="when">${esc(fmtETclock(m.at))}</span><span class="who">${esc(m.nickname||m.handle)}</span>${m.handle?`<span class="bh">@${esc(m.handle)}</span> `:''}${esc(m.text)}</div>`).join('');
-    body.scrollTop = body.scrollHeight;
+    body.innerHTML = list.map(m=>{
+      // In the #1-only view every message is theirs — only mark #1 in All chat / search.
+      const me = (chatShowAll || searching) && chatIsTop(m, top);
+      const name = m.nickname || m.handle || 'viewer';
+      return `<div class="cm${me?' me':''}"><div class="cm-h"><span class="cm-n" style="color:hsl(${chatHue(m.handle||name)},75%,72%)" data-h="${esc(m.handle||name)}" title="Search this person's messages">${chatHi(name)}</span>${m.handle?`<span class="cm-u">@${chatHi(m.handle)}</span>`:'<span class="cm-u"></span>'}${me?'<span class="cm-b">#1</span>':''}<span class="cm-t">${esc(fmtETclock(m.at))}</span></div><div class="cm-x">${chatHi(m.text)}</div></div>`;
+    }).join('');
+    if(forceBottom || atBottom){ body.scrollTop = body.scrollHeight; chatUnseen = 0; }
+    document.getElementById('chat-jump').classList.toggle('show', chatUnseen > 0);
   }
-  function chatToggle(){ const b=document.getElementById('chatbox'); b.classList.toggle('min'); try{ localStorage.setItem('ltsChatOpen', b.classList.contains('min')?'0':'1'); }catch{} chatSig=''; renderChat(); }
-  function chatAll(){ chatShowAll = !chatShowAll; chatSig=''; renderChat(); }
-  async function chatSetUser(){
-    let cur=''; try{ cur = (await (await fetch('/api/chat')).json()).username || ''; }catch{}
-    const u = prompt('TikTok @username whose LIVE chat to read (the LTs streaming account):', cur ? '@'+cur : '');
-    if(u===null) return;
+  function chatToggle(){ const b=document.getElementById('chatbox'); b.classList.toggle('min'); try{ localStorage.setItem('ltsChatOpen', b.classList.contains('min')?'0':'1'); }catch{} chatSig=''; renderChat(true); }
+  function chatMode(all){ chatShowAll = !!all; chatSig=''; renderChat(true); }
+  function chatAll(){ chatMode(!chatShowAll); }
+  function chatJump(){ const b=document.getElementById('chat-body'); b.scrollTop=b.scrollHeight; chatUnseen=0; document.getElementById('chat-jump').classList.remove('show'); }
+  function chatClearSearch(){ const i=document.getElementById('chat-q'); i.value=''; chatQ=''; chatRunSearch(); i.focus(); }
+  (function(){
+    const i = document.getElementById('chat-q');
+    i.addEventListener('input', ()=>{ chatQ = i.value.trim(); document.getElementById('chat-search').classList.toggle('has', !!chatQ); clearTimeout(chatSearchT); chatSearchT = setTimeout(chatRunSearch, 250); });
+    i.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ chatClearSearch(); } });
+    document.getElementById('chat-body').addEventListener('click', (e)=>{
+      const n = e.target.closest('.cm-n'); if(!n) return;
+      const h = n.dataset.h || ''; i.value = h; chatQ = h; chatMode(true); chatRunSearch();
+    });
+    document.getElementById('chat-body').addEventListener('scroll', (e)=>{ const b=e.target; if(b.scrollHeight-b.scrollTop-b.clientHeight<40){ chatUnseen=0; document.getElementById('chat-jump').classList.remove('show'); } });
+  })();
+  async function chatSettings(open){
+    const b = document.getElementById('chatbox');
+    const on = open===undefined ? !b.classList.contains('set') : !!open;
+    b.classList.toggle('set', on);
+    if(on){ try{ document.getElementById('chat-user').value = (await (await fetch('/api/chat')).json()).username || ''; }catch{} }
+  }
+  async function chatSaveUser(){
+    const u = document.getElementById('chat-user').value.replace(/^@/,'').trim().toLowerCase();
+    if(!u) return;
     await postJSON('/api/chat/username', {username: u});
+    document.getElementById('chat-user').value = u;
   }
+  const chatSetUser = ()=>chatSettings(true);
   async function chatReconnect(){ await postJSON('/api/chat/connect', {}); }
   socket.on('chat-init', (d)=>{ chatMsgs = (d && d.messages) || []; chatStatus = (d && d.status) || chatStatus; chatSig=''; renderChat(); });
-  socket.on('chat', (m)=>{ chatMsgs.push(m); if(chatMsgs.length>300) chatMsgs.splice(0, chatMsgs.length-300); renderChat(); });
+  socket.on('chat', (m)=>{
+    chatMsgs.push(m); if(chatMsgs.length>600) chatMsgs.splice(0, chatMsgs.length-600);
+    if(chatQ && chatResults && chatMatches(m)){ chatResults.push(m); if(chatSearchMeta) chatSearchMeta.total++; }
+    const b = document.getElementById('chat-body');
+    const shown = chatQ ? chatMatches(m) : (chatShowAll || chatIsTop(m, (state.queue||[])[0]||null));
+    if(shown && b && b.scrollHeight - b.scrollTop - b.clientHeight >= 40) chatUnseen++;
+    renderChat();
+  });
   socket.on('chat-status', (s)=>{ chatStatus = s; chatSig=''; renderChat(); });
 
   render();

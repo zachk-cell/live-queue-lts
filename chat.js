@@ -9,8 +9,13 @@
 // so in a busy chat the person being ripped is easy to spot.
 
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const MAX_BUFFER = 300;
+// Kept in memory (and on disk, so a restart mid-stream doesn't lose it) for the
+// panel's chat search. ~5000 messages is several hours of a busy LIVE.
+const MAX_BUFFER = 5000;
+const BUFFER_FILE = path.resolve(process.cwd(), 'data', 'chat-buffer.json');
 
 export class LiveChat extends EventEmitter {
   constructor(getUsername) {
@@ -23,6 +28,30 @@ export class LiveChat extends EventEmitter {
     this.buffer = [];
     this._retry = null;
     this._want = false;
+    this._saveT = null;
+    try { const j = JSON.parse(fs.readFileSync(BUFFER_FILE, 'utf8')); if (Array.isArray(j)) this.buffer = j.slice(-MAX_BUFFER); } catch { /* none yet */ }
+  }
+
+  _save() {
+    clearTimeout(this._saveT);
+    this._saveT = setTimeout(() => {
+      try {
+        fs.mkdirSync(path.dirname(BUFFER_FILE), { recursive: true });
+        fs.writeFileSync(BUFFER_FILE + '.tmp', JSON.stringify(this.buffer));
+        fs.renameSync(BUFFER_FILE + '.tmp', BUFFER_FILE);
+      } catch (e) { console.warn('[chat] save failed:', e.message); }
+    }, 5000);
+    this._saveT.unref?.();
+  }
+
+  /** Search the kept chat: every word must appear in the message, display name
+   *  or @handle (case/accent-insensitive). Newest last, up to `limit`. */
+  search(q, limit = 300) {
+    const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const words = norm(q).replace(/^@/, '').split(/\s+/).filter(Boolean);
+    if (!words.length) return { total: 0, messages: [] };
+    const hits = this.buffer.filter((m) => { const h = norm(`${m.text} ${m.nickname} ${m.handle} @${m.handle}`); return words.every((w) => h.includes(w)); });
+    return { total: hits.length, messages: hits.slice(-limit) };
   }
 
   status() {
@@ -70,6 +99,7 @@ export class LiveChat extends EventEmitter {
         if (!msg.text) return;
         this.buffer.push(msg);
         if (this.buffer.length > MAX_BUFFER) this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
+        this._save();
         this.emit('message', msg);
       });
       conn.on(ControlEvent.DISCONNECTED, () => { this._set('offline', 'disconnected'); this._scheduleRetry(); });

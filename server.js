@@ -668,7 +668,7 @@ queue.on('change', () => {
 
 // Offline orders, after-action reports, back office, chat feed, changelog.
 mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdminPage, isAuthed, ADMIN, SESSION_SECRET, dir: __dirname, panelNs });
-panelNs.on('connection', (socket) => socket.emit('chat-init', { status: chat.status(), messages: chat.recent(150) }));
+panelNs.on('connection', (socket) => socket.emit('chat-init', { status: chat.status(), messages: chat.recent(400) }));
 if (queue.live) setTimeout(() => chat.start().catch(() => {}), 5000).unref?.();
 
 // ---------- Integrations ----------

@@ -2,6 +2,15 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 28, 2026 — Chat fixed, searchable and redesigned
+- **Chat now connects and reads the feed.** Three fixes: the account name is read in lowercase (TikTok's lookup is case-sensitive), messages are read from the field the new chat reader uses, and the sender's @handle is read correctly so #1-buyer matching works.
+- **🔍 Search the chat:** search the whole stream's chat by words, display name or @handle, with matches highlighted. Click anyone's name to see all of their messages. The chat is kept on the server (several thousand messages), so a restart mid-stream doesn't lose it.
+- **Cleaner layout:**
+  - **#1 buyer / All chat** tabs that stay in place for quick switching
+  - each message shows a colored name, @handle and time, with the #1 buyer marked
+  - a **↓ New messages** button when you've scrolled up
+- **⚙ Chat settings** now holds the LIVE account and ↻ Reconnect, out of the way.
+
 ## November 27, 2026 (late night) — Reused listings counted correctly
 - **Reused listings are now handled.** TikTok keeps a listing's ID when it's re-titled for a different item. The back office now spots sales made under a clearly different name and counts them as their own item.
 - **Dragon Frontiers DADDY BREAK (100 Spot):** its listing was previously the “Legendary Collection Galaxy Rips Galactic Gooner Bag” (924 units sold Nov 14). Those sales are now their own item, so the break shows only its own sales. Its time to sell is measured from when the listing was reused, not its original listing date.

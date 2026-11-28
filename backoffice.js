@@ -84,6 +84,10 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
 
   // ---------- Live chat ----------
   app.get('/api/chat', requireAuth, (_req, res) => res.json({ status: chat.status(), messages: chat.recent(150), username: ledger.bo.chatUsername || process.env.TIKTOK_LIVE_USERNAME || '' }));
+  app.get('/api/chat/search', requireAuth, (req, res) => {
+    const lim = Math.max(1, Math.min(1000, Number(req.query.limit) || 300));
+    res.json({ ...chat.search(String(req.query.q || '').slice(0, 100), lim), kept: chat.buffer.length, oldest: chat.buffer[0] ? chat.buffer[0].at : null });
+  });
   app.post('/api/chat/username', requireAuth, (req, res) => {
     const u = String((req.body && req.body.username) || '').replace(/^@/, '').trim().slice(0, 40);
     ledger.bo.chatUsername = u; ledger.saveBo();
