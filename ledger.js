@@ -145,6 +145,12 @@ export class Ledger {
         price: Number(it.price) || 0,
         cancelled: !!it.cancelled,
       };
+      // Pre-coupon money (TikTok order API): list price + who funded discounts.
+      if (Number(it.listPrice) > 0) {
+        line.listPrice = Number(it.listPrice);
+        line.sellerDisc = Number(it.sellerDiscount) || 0;
+        line.platformDisc = Number(it.platformDiscount) || 0;
+      }
       // Stamp consignment terms at the moment of sale so later edits to an
       // item's terms never rewrite what a past sale paid out.
       const t = this.termsFor(line);
@@ -161,6 +167,13 @@ export class Ledger {
       if (raw.total != null && Number(raw.total)) prev.total = Number(raw.total);
       if (raw.shippingFee != null) prev.shippingFee = Number(raw.shippingFee) || 0;
       if (raw.cancelRequested && !prev.cancelRequested) prev.cancelRequested = true;
+      if (raw.pay && !prev.pay) prev.pay = raw.pay;
+      for (const it of prev.items) {
+        if (it.listPrice) continue;
+        const m = items.find((x) => x.name === it.name && x.listPrice && !x._used);
+        if (m) { m._used = true; it.listPrice = m.listPrice; it.sellerDisc = m.sellerDisc; it.platformDisc = m.platformDisc; }
+      }
+      for (const x of items) delete x._used;
       this.save();
       return prev;
     }
@@ -173,6 +186,7 @@ export class Ledger {
       items,
       total: Number(raw.total) || items.reduce((s, it) => s + it.price * it.qty, 0),
       shippingFee: Number(raw.shippingFee) || 0,
+      ...(raw.pay ? { pay: raw.pay } : {}),
       channel: ctx.channel === 'offline' ? 'offline' : 'live',
       streamId: ctx.streamId ? String(ctx.streamId) : null,
       source: ctx.source || 'ingest',
@@ -200,6 +214,18 @@ export class Ledger {
       if (m.sku && !it.sku) it.sku = String(m.sku);
       n++;
     }
+    // Pre-coupon money for lines saved before it was captured. Lines are one
+    // unit each (TikTok 202309), so match them up one-to-one by name.
+    const used = new Set();
+    for (const it of prev.items) {
+      if (it.listPrice) continue;
+      const i = (raw.items || []).findIndex((x, k) => !used.has(k) && Number(x.listPrice) > 0 && (String(x.name || '') === it.name || normName(x.name) === normName(it.name)));
+      if (i < 0) continue;
+      used.add(i); const x = raw.items[i];
+      it.listPrice = Number(x.listPrice); it.sellerDisc = Number(x.sellerDiscount) || 0; it.platformDisc = Number(x.platformDiscount) || 0;
+      n++;
+    }
+    if (raw.pay && !prev.pay) { prev.pay = raw.pay; n++; }
     if (n) this.save();
     return n;
   }
@@ -232,6 +258,38 @@ export class Ledger {
       }
       this.save(); this.saveBo();
     }
+    return n;
+  }
+  /** Actual TikTok settlement for an order (from the Finance API). */
+  setSettlement(orderId, st) {
+    const o = this.orders[String(orderId)];
+    if (!o) return false;
+    o.settle = { ...st, checkedAt: Date.now() };
+    this.save();
+    return true;
+  }
+  /** Return/refund requests + cancellations from TikTok, attached to orders. */
+  setReturns(returns, cancels) {
+    let n = 0;
+    const byOrder = new Map();
+    for (const r of returns || []) {
+      const id = String(r.order_id || ''); if (!this.orders[id]) continue;
+      if (!byOrder.has(id)) byOrder.set(id, []);
+      byOrder.get(id).push({
+        id: String(r.return_id || ''), type: String(r.return_type || ''), status: String(r.return_status || ''),
+        reason: String(r.return_reason_text || r.return_reason || ''), arbitration: String(r.arbitration_status || ''),
+        refund: Number(r.refund_amount && r.refund_amount.refund_total) || 0, role: String(r.role || ''),
+        at: Number(r.create_time || 0) * 1000, updatedAt: Number(r.update_time || 0) * 1000,
+      });
+    }
+    for (const [id, list] of byOrder) { this.orders[id].returns = list; n++; }
+    for (const c of cancels || []) {
+      const o = this.orders[String(c.order_id || '')]; if (!o) continue;
+      o.cancelInfo = { reason: String(c.cancel_reason_text || c.cancel_reason || ''), role: String(c.role || ''), status: String(c.cancel_status || ''),
+        refund: Number(c.refund_amount && c.refund_amount.refund_total) || 0, at: Number(c.create_time || 0) * 1000 };
+      n++;
+    }
+    if (n) this.save();
     return n;
   }
   markCancelled(orderId, at = Date.now()) {

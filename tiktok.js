@@ -274,6 +274,12 @@ export function normalizeOrder(o) {
       variant: variant || '',
       qty: li.quantity || 1,
       price,
+      // Money before coupons: list price, and who funded the discount. TikTok
+      // pays the seller back for platform (TikTok-funded) coupons; seller
+      // discounts come out of the seller's revenue.
+      listPrice: _amount(li.original_price),
+      sellerDiscount: _amount(li.seller_discount),
+      platformDiscount: _amount(li.platform_discount),
       cancelled: itemCancelled,
       displayStatus: dstat || '',
     };
@@ -293,6 +299,19 @@ export function normalizeOrder(o) {
     total: Number(o.payment?.total_amount || o.total_amount || 0),
     // Buyer-paid shipping (not the label cost) — kept for reference.
     shippingFee: _amount(o.payment?.shipping_fee),
+    // Full payment breakdown (all amounts in USD) for pre-coupon reporting.
+    pay: o.payment ? {
+      listTotal: _amount(o.payment.original_total_product_price),
+      sellerDiscount: _amount(o.payment.seller_discount),
+      platformDiscount: _amount(o.payment.platform_discount),
+      subTotal: _amount(o.payment.sub_total),
+      shippingList: _amount(o.payment.original_shipping_fee),
+      shippingPaid: _amount(o.payment.shipping_fee),
+      shippingSellerDiscount: _amount(o.payment.shipping_fee_seller_discount),
+      shippingPlatformDiscount: _amount(o.payment.shipping_fee_platform_discount),
+      tax: _amount(o.payment.tax),
+      total: _amount(o.payment.total_amount),
+    } : null,
     status: String(o.status || ''),
     createdAt: o.create_time ? o.create_time * 1000 : Date.now(),
     // TikTok flips is_on_hold_order for SEVERAL reasons (address check, order
@@ -821,4 +840,41 @@ export async function probeOrderMoney(orderId) {
     catch (e) { out[k] = { error: e.message }; }
   }
   return out;
+}
+
+
+// ── Actual money from TikTok Finance + Returns (read-only) ───────────────────
+const _n = (v) => Number(v) || 0;
+/** Settlement for one order: sums every statement transaction TikTok has posted
+ *  for it (a refund later adds another). Returns { ok, posted:false } when the
+ *  order hasn't settled yet. Amounts: fees/shipping are negative (costs). */
+export async function fetchOrderSettlement(orderId) {
+  const body = await apiCall('GET', `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
+  const e = _err(body);
+  if (e) return { ok: false, error: e };
+  const txs = (body.data && body.data.statement_transactions) || [];
+  if (!txs.length) return { ok: true, posted: false };
+  const F = ['gross_sales_amount', 'revenue_amount', 'settlement_amount', 'fee_amount', 'referral_fee_amount', 'transaction_fee_amount',
+    'platform_commission_amount', 'affiliate_commission_amount', 'shipping_cost_amount', 'customer_refund_amount', 'gross_sales_refund_amount',
+    'platform_discount_amount', 'seller_discount_amount', 'adjustment_amount', 'customer_payment_amount', 'sales_tax_amount',
+    'shipping_fee_subsidy_amount', 'platform_shipping_fee_discount_amount', 'customer_shipping_fee_amount'];
+  const out = { ok: true, posted: true, count: txs.length, statuses: [...new Set(txs.map((t) => t.status).filter(Boolean))], statementAt: 0 };
+  for (const f of F) out[f.replace(/_amount$/, '').replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = Math.round(txs.reduce((a, t) => a + _n(t[f]), 0) * 100) / 100;
+  out.statementAt = Math.max(...txs.map((t) => _n(t.statement_time) * 1000));
+  return out;
+}
+/** Every return/refund request and every cancellation, newest first (paged). */
+export async function fetchAllReturns(kind = 'returns', maxPages = 40) {
+  const path = kind === 'cancellations' ? `/return_refund/202309/cancellations/search` : `/return_refund/202309/returns/search`;
+  const listKey = kind === 'cancellations' ? 'cancellations' : 'return_orders';
+  const all = []; let token = '';
+  for (let i = 0; i < maxPages; i++) {
+    const body = await apiCall('POST', path, { page_size: 50, ...(token ? { page_token: token } : {}) }, {});
+    const e = _err(body);
+    if (e) return { ok: false, error: e, items: all };
+    all.push(...((body.data && body.data[listKey]) || []));
+    token = (body.data && body.data.next_page_token) || '';
+    if (!token) break;
+  }
+  return { ok: true, items: all };
 }

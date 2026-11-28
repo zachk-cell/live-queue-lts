@@ -16,6 +16,15 @@ import path from 'node:path';
 // panel's chat search. ~5000 messages is several hours of a busy LIVE.
 const MAX_BUFFER = 5000;
 const BUFFER_FILE = path.resolve(process.cwd(), 'data', 'chat-buffer.json');
+const ARCHIVE_DIR = path.resolve(process.cwd(), 'data', 'chat-archive');
+const safeId = (id) => String(id || '').replace(/[^0-9A-Za-z_-]/g, '').slice(0, 40);
+const normQ = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function matchAll(list, q, limit) {
+  const words = normQ(q).replace(/^@/, '').split(/\s+/).filter(Boolean);
+  if (!words.length) return { total: list.length, messages: list.slice(-limit) };
+  const hits = list.filter((m) => { const h = normQ(`${m.text} ${m.nickname} ${m.handle} @${m.handle}`); return words.every((w) => h.includes(w)); });
+  return { total: hits.length, messages: hits.slice(-limit) };
+}
 
 export class LiveChat extends EventEmitter {
   constructor(getUsername) {
@@ -47,11 +56,43 @@ export class LiveChat extends EventEmitter {
   /** Search the kept chat: every word must appear in the message, display name
    *  or @handle (case/accent-insensitive). Newest last, up to `limit`. */
   search(q, limit = 300) {
-    const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const words = norm(q).replace(/^@/, '').split(/\s+/).filter(Boolean);
-    if (!words.length) return { total: 0, messages: [] };
-    const hits = this.buffer.filter((m) => { const h = norm(`${m.text} ${m.nickname} ${m.handle} @${m.handle}`); return words.every((w) => h.includes(w)); });
-    return { total: hits.length, messages: hits.slice(-limit) };
+    if (!String(q || '').trim()) return { total: 0, messages: [] };
+    return matchAll(this.buffer, q, limit);
+  }
+
+  /** End Live: save this stream's chat under the stream id and start a fresh
+   *  log for the next stream. Returns how many messages were archived. */
+  archive(streamId) {
+    const id = safeId(streamId);
+    if (!id) return 0;
+    const msgs = this.buffer.slice();
+    try {
+      fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+      let prev = [];
+      try { prev = JSON.parse(fs.readFileSync(path.join(ARCHIVE_DIR, id + '.json'), 'utf8')); } catch { /* new */ }
+      const seen = new Set(prev.map((m) => m.id));
+      const all = prev.concat(msgs.filter((m) => !seen.has(m.id))).sort((a, b) => a.at - b.at);
+      fs.writeFileSync(path.join(ARCHIVE_DIR, id + '.json'), JSON.stringify(all));
+    } catch (e) { console.warn('[chat] archive failed:', e.message); return 0; }
+    this.buffer = [];
+    this._save();
+    this.emit('cleared');
+    return msgs.length;
+  }
+  static archiveList() {
+    try {
+      return fs.readdirSync(ARCHIVE_DIR).filter((f) => f.endsWith('.json')).map((f) => {
+        const id = f.slice(0, -5); let n = 0;
+        try { n = JSON.parse(fs.readFileSync(path.join(ARCHIVE_DIR, f), 'utf8')).length; } catch { /* unreadable */ }
+        return { id, count: n };
+      });
+    } catch { return []; }
+  }
+  static archiveSearch(streamId, q, limit = 2000) {
+    const id = safeId(streamId);
+    let list;
+    try { list = JSON.parse(fs.readFileSync(path.join(ARCHIVE_DIR, id + '.json'), 'utf8')); } catch { return null; }
+    return { ...matchAll(list, q, limit), kept: list.length, oldest: list[0] ? list[0].at : null, newest: list.length ? list[list.length - 1].at : null };
   }
 
   status() {

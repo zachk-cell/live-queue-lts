@@ -9,9 +9,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { streamReport, termsFromMap, itemKey, normName } from './analytics.js';
+import { streamReport, termsFromMap, itemKey, normName, actuals } from './analytics.js';
 import { aarWorkbook, customExportWorkbook } from './reports.js';
-import { fetchCatalog, updateSkuPrice, updateSkuStock, fetchOrdersRange, productScopeHint } from './tiktok.js';
+import { fetchCatalog, updateSkuPrice, updateSkuStock, fetchOrdersRange, productScopeHint, fetchOrderSettlement, fetchAllReturns } from './tiktok.js';
 
 const BO_TTL_MS = 12 * 3600 * 1000; // back-office unlock lasts 12h
 
@@ -54,7 +54,8 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
     const list = ledger.streamList().map((s) => {
       const r = streamReport(s, ledger.ordersForStream(s.id), ledger.bo.settings, termsOf);
       return { id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, orders: r.totals.orders, buyers: r.totals.buyers,
-        units: r.totals.units, gross: r.totals.gross, net: r.totals.net, consGross: r.totals.consGross, seeded: !!s.seeded };
+        units: r.totals.units, gross: r.totals.gross, net: r.totals.net, consGross: r.totals.consGross, seeded: !!s.seeded,
+        settled: r.actuals.settled, settlement: r.actuals.settlement, pending: r.actuals.pending };
     });
     res.json({ streams: list, tz: ledger.bo.settings.timezone });
   });
@@ -84,6 +85,12 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
 
   // ---------- Live chat ----------
   app.get('/api/chat', requireAuth, (_req, res) => res.json({ status: chat.status(), messages: chat.recent(150), username: ledger.bo.chatUsername || process.env.TIKTOK_LIVE_USERNAME || '' }));
+  app.get('/api/chat/archives', requireAuth, (_req, res) => res.json({ archives: chat.constructor.archiveList() }));
+  app.get('/api/chat/archive/:id', requireAuth, (req, res) => {
+    const r = chat.constructor.archiveSearch(req.params.id, String(req.query.q || '').slice(0, 100), Math.min(5000, Number(req.query.limit) || 2000));
+    if (!r) return res.status(404).json({ error: 'no chat saved for this stream' });
+    res.json(r);
+  });
   app.get('/api/chat/search', requireAuth, (req, res) => {
     const lim = Math.max(1, Math.min(1000, Number(req.query.limit) || 300));
     res.json({ ...chat.search(String(req.query.q || '').slice(0, 100), lim), kept: chat.buffer.length, oldest: chat.buffer[0] ? chat.buffer[0].at : null });
@@ -148,7 +155,7 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
       settings: ledger.bo.settings, items: ledger.bo.items, catalog: ledger.bo.catalog,
       changelog: ledger.bo.changelog.slice(0, 500), seen: [...seen.values()].map((s) => ({ ...s, gross: Math.round(s.gross * 100) / 100, prices: undefined, lastPrice: s.prices.at(-1) || 0 })),
       snapshots: ledger.bo.snapshots.slice(-400), streams: ledger.streamList().map((s) => ({ id: s.id, startedAt: s.startedAt, endedAt: s.endedAt })),
-      password: ledger.passwordSource(), lastImport: ledger.bo.lastImport || null, reused: ledger.bo.reused || {},
+      password: ledger.passwordSource(), lastImport: ledger.bo.lastImport || null, reused: ledger.bo.reused || {}, lastFinance: ledger.bo.lastFinance || null,
     });
   });
   // Every order (compact) for the metrics dashboard + profitability (client-side).
@@ -156,7 +163,14 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
     res.json({ orders: Object.values(ledger.orders).map((o) => ({
       id: o.id, createdAt: o.createdAt, buyerId: o.buyerId, buyer: o.buyer, buyerHandle: o.buyerHandle, status: o.status,
       channel: o.channel, streamId: o.streamId, total: o.total, fulfilledAt: o.fulfilledAt || null,
-      items: (o.items || []).map((i) => ({ name: i.name, productId: i.productId, skuId: i.skuId, sku: i.sku, qty: i.qty, price: i.price, cancelled: i.cancelled, cs: i.cs })),
+      items: (o.items || []).map((i) => ({ name: i.name, productId: i.productId, skuId: i.skuId, sku: i.sku, qty: i.qty, price: i.price, cancelled: i.cancelled, cs: i.cs,
+        ...(i.listPrice ? { listPrice: i.listPrice, sellerDisc: i.sellerDisc, platformDisc: i.platformDisc } : {}) })),
+      ...(o.settle ? { settle: { posted: o.settle.posted, settlement: o.settle.settlement, revenue: o.settle.revenue, fee: o.settle.fee, referralFee: o.settle.referralFee,
+        transactionFee: o.settle.transactionFee, affiliateCommission: o.settle.affiliateCommission, shippingCost: o.settle.shippingCost,
+        customerRefund: o.settle.customerRefund, adjustment: o.settle.adjustment } } : {}),
+      ...(o.returns ? { returns: o.returns.map((r) => ({ type: r.type, status: r.status, reason: r.reason, arbitration: r.arbitration, refund: r.refund })) } : {}),
+      ...(o.cancelInfo ? { cancelInfo: { role: o.cancelInfo.role, reason: o.cancelInfo.reason } } : {}),
+      ...(o.pay ? { pay: { shippingSellerDiscount: o.pay.shippingSellerDiscount } } : {}),
     })) });
   });
   app.post('/api/bo/terms', requireAuth, requireBo, (req, res) => {
@@ -202,12 +216,10 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
   });
   // Import past TikTok orders into the ledger (for metrics history). Idempotent.
   let importing = null;
-  app.post('/api/bo/import', requireAuth, requireBo, async (req, res) => {
-    if (importing) return res.json({ ok: false, error: 'An import is already running.', progress: importing });
-    const days = Math.max(1, Math.min(365, Number(req.body && req.body.days) || 90));
+  const runImport = async (days, label = 'TikTok order import') => {
+    if (importing) return false;
     const to = Date.now(); const from = to - days * 86400000;
     importing = { done: 0, total: 0, started: Date.now() };
-    res.json({ ok: true, started: true, days });
     try {
       let added = 0, cancelled = 0, linked = 0, err = '';
       // Month-sized windows keep each search well inside TikTok's limits.
@@ -216,6 +228,7 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
         const r = await fetchOrdersRange(a, b, (d, t) => { importing.done = d; importing.total = t; });
         if (!r.ok) { err = r.error; break; }
         for (const o of r.orders) {
+          // Known order: fill in TikTok ids + pre-coupon prices it was saved without.
           if (ledger.orders[String(o.id)]) { linked += ledger.backfillIds(o); continue; }
           const s = ledger.streamAt(o.createdAt);
           ledger.recordOrder(o, { channel: s ? 'live' : 'offline', streamId: s ? s.id : null, source: 'import' });
@@ -225,11 +238,28 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
       }
       ledger.detachRepurposed((ledger.bo.catalog && ledger.bo.catalog.products) || []);
       ledger.bo.lastImport = { at: Date.now(), added, cancelled, linked, days, ...(err ? { error: err } : {}) };
-      ledger.log({ kind: 'import', key: 'orders', label: 'TikTok order import', field: `last ${days} days`, from: null, to: `${added} orders added, ${linked} older lines linked to inventory` });
+      ledger.log({ kind: 'import', key: 'orders', label, field: `last ${days} days`, from: null, to: `${added} orders added, ${linked} older records updated` });
       ledger.flush(); ledger.saveBo();
-    } catch (e) { ledger.bo.lastImport = { at: Date.now(), error: e.message, days }; ledger.saveBo(); }
+      return !err;
+    } catch (e) { ledger.bo.lastImport = { at: Date.now(), error: e.message, days }; ledger.saveBo(); return false; }
     finally { importing = null; }
+  };
+  app.post('/api/bo/import', requireAuth, requireBo, async (req, res) => {
+    if (importing) return res.json({ ok: false, error: 'An import is already running.', progress: importing });
+    const days = Math.max(1, Math.min(365, Number(req.body && req.body.days) || 90));
+    res.json({ ok: true, started: true, days });
+    runImport(days).catch(() => {});
   });
+  // One-time: older orders were saved with only the after-coupon price. Re-read
+  // the last year from TikTok (read-only) to fill in list prices + discounts,
+  // then pull settlements/refunds for everything.
+  if (!ledger.meta.moneyBackfill) {
+    setTimeout(async () => {
+      const ok = await runImport(365, 'Pre-coupon price backfill').catch(() => false);
+      if (ok) { ledger.meta.moneyBackfill = Date.now(); ledger.save(); ledger.flush(); }
+      runFinanceSync({ max: 3000, all: true }).catch(() => {});
+    }, 90000).unref?.();
+  }
   app.get('/api/bo/import', requireAuth, requireBo, (_req, res) => res.json({ running: importing, last: ledger.bo.lastImport || null }));
   app.get('/api/bo/export', requireAuth, requireBo, async (req, res) => {
     try {
@@ -264,9 +294,62 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
   setTimeout(autoSync, 60000).unref?.();
   setInterval(autoSync, 6 * 3600 * 1000).unref?.();
 
+  // ── Actual money: TikTok settlements, refunds/returns, cancellations ───────
+  // Read-only. Orders settle with TikTok some days after delivery; we re-check
+  // unsettled orders (2–90 days old) every few hours and keep the newest numbers.
+  let finSync = null;
+  const runFinanceSync = async ({ max = 200, all = false } = {}) => {
+    if (finSync) return { ok: false, error: 'already running', progress: finSync };
+    const now = Date.now(), day = 86400000;
+    const due = Object.values(ledger.orders).filter((o) => {
+      if (o.status === 'cancelled' || !o.createdAt) return false;
+      const age = now - o.createdAt;
+      if (age < 2 * day) return false;
+      const st = o.settle;
+      if (!st) return all || age < 120 * day;
+      if (st.posted && age > 45 * day) return false;              // settled long ago — final
+      const every = st.posted ? 3 * day : 12 * 3600 * 1000;      // settled: watch for late refunds
+      return (now - (st.checkedAt || 0)) > every && age < 120 * day;
+    }).sort((a, b) => (a.settle ? 1 : 0) - (b.settle ? 1 : 0) || a.createdAt - b.createdAt).slice(0, max);
+    finSync = { done: 0, total: due.length, settled: 0, started: now, errors: 0 };
+    try {
+      for (const o of due) {
+        try {
+          const r = await fetchOrderSettlement(o.id);
+          if (r.ok) { ledger.setSettlement(o.id, r); if (r.posted) finSync.settled++; }
+          else { finSync.errors++; finSync.lastError = r.error; if (productScopeHint(r.error)) break; }
+        } catch (e) { finSync.errors++; finSync.lastError = e.message; }
+        finSync.done++;
+        await new Promise((res) => setTimeout(res, 250));
+      }
+      const [rt, cn] = await Promise.all([fetchAllReturns('returns'), fetchAllReturns('cancellations')]);
+      const attached = ledger.setReturns(rt.items, cn.items);
+      ledger.bo.lastFinance = { at: Date.now(), checked: finSync.done, settled: finSync.settled, errors: finSync.errors,
+        returns: (rt.items || []).length, cancellations: (cn.items || []).length, attached,
+        ...(finSync.lastError ? { error: finSync.lastError } : {}), ...(rt.ok ? {} : { returnsError: rt.error }) };
+      ledger.flush(); ledger.saveBo();
+      return { ok: true, ...ledger.bo.lastFinance };
+    } finally { finSync = null; }
+  };
+  app.post('/api/bo/finance-sync', requireAuth, requireBo, (req, res) => {
+    const all = !!(req.body && req.body.all);
+    runFinanceSync({ max: all ? 3000 : 400, all }).catch(() => {});
+    res.json({ ok: true, started: true });
+  });
+  app.get('/api/bo/finance-sync', requireAuth, requireBo, (_req, res) => res.json({ running: finSync, last: ledger.bo.lastFinance || null }));
+  app.get('/api/bo/actuals', requireAuth, requireBo, (req, res) => {
+    const from = Number(req.query.from) || 0, to = Number(req.query.to) || Date.now() + 1;
+    const ch = String(req.query.channel || 'all');
+    const os = Object.values(ledger.orders).filter((o) => o.createdAt >= from && o.createdAt < to && (ch === 'all' || o.channel === ch));
+    res.json(actuals(os, ledger.bo.settings, termsOf));
+  });
+  setTimeout(() => runFinanceSync({ max: 300 }).catch(() => {}), 5 * 60000).unref?.();
+  setInterval(() => runFinanceSync({ max: 300 }).catch(() => {}), 4 * 3600 * 1000).unref?.();
+
   // Chat → panel sockets.
   chat.on('message', (m) => panelNs.emit('chat', m));
   chat.on('status', (s) => panelNs.emit('chat-status', s));
+  chat.on('cleared', () => panelNs.emit('chat-init', { status: chat.status(), messages: [] }));
 }
 
 // Tiny, safe markdown → HTML for CHANGELOG.md (headings, bullets, bold, code).

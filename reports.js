@@ -103,17 +103,35 @@ export async function aarWorkbook(ledger, streamId) {
   kvSheet(wb, 'Summary', title, sub, [
     { title: 'Sales', rows: [
       ['Orders', t.orders, 'int'], ['Unique buyers', t.buyers, 'int'], ['Units sold', t.units, 'int'],
-      ['Gross sales', t.gross, 'money', 'What buyers paid for items (before shipping & tax)'],
+      ['Sales before coupons', t.gross, 'money', 'Item list prices, before any coupon (shipping & tax excluded)'],
+      ['Seller discounts', -t.sellerDisc, 'money', 'Discounts LTs funded — they come off revenue'],
+      ['TikTok coupons', t.platformDisc, 'money', 'TikTok-funded coupons — TikTok pays these back, so they do not reduce revenue'],
+      ['Buyers paid', t.paid, 'money', 'What buyers actually paid for items after all coupons'],
+      ['Revenue', t.revenue, 'money', 'Sales before coupons minus seller discounts'],
       ['Average order', t.aov, 'money'], ['Cancelled orders', rep.cancelled.length, 'int'],
     ] },
     { title: 'Revenue (estimated)', rows: [
-      ['TikTok fees', -t.tiktokFee, 'money', `${settings.tiktokFeePct}% of gross`],
-      ['Streamer commission', -t.commission, 'money', `${settings.streamerPct}% of gross`],
+      ['TikTok fees', -t.tiktokFee, 'money', `${settings.tiktokFeePct}% of revenue`],
+      ['Streamer commission', -t.commission, 'money', `${settings.streamerPct}% of revenue`],
       ['Shipping (estimate)', -t.shipping, 'money', settings.shippingMode === 'pct' ? `${settings.shippingPct}% of each order` : `$${settings.shippingFixed} per order`],
       ['Cost of goods (own stock)', -t.cogs, 'money', t.uncosted ? `$${t.uncosted.toFixed(2)} of sales have no cost entered yet` : ''],
       ['Consignee payouts', -t.payout, 'money'],
       ['Net revenue', t.net, 'money'], ['Net margin', t.margin, 'pct'],
     ] },
+    { title: 'TikTok settlement — actual vs estimate', rows: (() => { const a = rep.actuals; return [
+      ['Orders settled by TikTok', a.settled, 'int', `${a.pending} still waiting to settle (estimated ${'$' + a.pendingEst.toFixed(2)})`],
+      ['Estimated settlement (settled orders)', a.estSettlement, 'money', 'Revenue − estimated TikTok fee − estimated shipping'],
+      ['Actual settlement', a.settlement, 'money', 'What TikTok actually paid out for those orders'],
+      ['Difference', a.settlementDiff, 'money'],
+      ['Actual TikTok fees', -a.fees, 'money', `${a.feePct}% of revenue (estimate ${a.estFeePct}%)`],
+      ['Actual shipping labels', -a.shippingCost, 'money', `$${a.shipPerOrder.toFixed(2)} per order (estimate $${a.estShipPerOrder.toFixed(2)})`],
+      ['Refunds taken from settlement', -a.refunds, 'money'],
+      ['Actual net (settled orders)', a.netActual, 'money', 'Settlement − commission − cost of goods − consignee payouts'],
+      ['Refund / return requests', a.returnReqRate, 'pct', `${a.returnReq} orders`],
+      ['Refunded', a.refundRate, 'pct', `${a.refunded} orders · $${a.refundAmt.toFixed(2)}`],
+      ['Disputes (TikTok arbitration)', a.disputeRate, 'pct', `${a.disputes} orders · ${a.disputesWon} decided for LTs`],
+      ['Cancellation rate', a.cancelRate, 'pct', `${a.cancelled} cancelled — buyer ${a.cancelBuyer}, seller ${a.cancelSeller}, system ${a.cancelSystem}`],
+    ]; })() },
     { title: 'Own stock vs consignment', rows: [
       ['Own stock — gross', t.ownGross, 'money'], ['Own stock — net', t.ownNet, 'money'],
       ['Consignment — gross', t.consGross, 'money'], ['Consignment — paid to consignees', -t.consPayout, 'money'],
@@ -125,13 +143,16 @@ export async function aarWorkbook(ledger, streamId) {
     b.orders.forEach((o, i) => buyerRows.push({
       buyer: i === 0 ? b.buyer : '', handle: i === 0 && b.handle ? '@' + b.handle : '',
       order: o.id, items: o.items.map((x) => `${x.qty}× ${x.name}${x.consigned ? ' (consigned)' : ''}`).join('\n'),
-      orderTotal: o.total, spend: i === 0 ? b.spend : null, units: i === 0 ? b.units : null, _band: buyerRows.length % 2 === 1 && false,
+      orderTotal: o.total, paid: o.paid, coupon: (o.platformDisc || 0) + (o.sellerDisc || 0), settlement: o.settlement, refund: o.refund || '',
+      spend: i === 0 ? b.spend : null, units: i === 0 ? b.units : null, _band: buyerRows.length % 2 === 1 && false,
     }));
   }
   tableSheet(wb, 'Buyers', [
     { header: 'Buyer', key: 'buyer', width: 26 }, { header: '@username', key: 'handle', width: 20 },
     { header: 'Order #', key: 'order', width: 22, fmt: 'text' }, { header: 'Items', key: 'items', width: 60, wrap: true },
-    { header: 'Order total', key: 'orderTotal', width: 14, fmt: 'money' },
+    { header: 'Order (before coupons)', key: 'orderTotal', width: 16, fmt: 'money' },
+    { header: 'Buyer paid', key: 'paid', width: 12, fmt: 'money' }, { header: 'Coupons', key: 'coupon', width: 12, fmt: 'money' },
+    { header: 'TikTok settled', key: 'settlement', width: 14, fmt: 'money' }, { header: 'Refund', key: 'refund', width: 12 },
     { header: 'Buyer spend', key: 'spend', width: 14, fmt: 'money' }, { header: 'Buyer units', key: 'units', width: 12, fmt: 'int' },
   ], buyerRows);
   const facts = buildFacts(ledger.ordersForStream(streamId).filter((o) => o.status !== 'cancelled'), settings, termsOf);
@@ -159,7 +180,9 @@ function lineCols() {
     { header: 'Order #', key: 'orderId', width: 22 }, { header: 'Buyer', key: 'buyer', width: 24 },
     { header: 'Item', key: 'name', width: 46 }, { header: 'SKU', key: 'sku', width: 16 },
     { header: 'Qty', key: 'qty', width: 7, fmt: 'int' }, { header: 'Unit price', key: 'unitPrice', fmt: 'money' },
-    { header: 'Gross', key: 'gross', fmt: 'money' }, { header: 'TikTok fee', key: 'tiktokFee', fmt: 'money' },
+    { header: 'List price (before coupons)', key: 'gross', fmt: 'money', width: 14 }, { header: 'Seller discount', key: 'sellerDisc', fmt: 'money' },
+    { header: 'TikTok coupon', key: 'platformDisc', fmt: 'money' }, { header: 'Buyer paid', key: 'paid', fmt: 'money' },
+    { header: 'Revenue', key: 'revenue', fmt: 'money' }, { header: 'TikTok fee', key: 'tiktokFee', fmt: 'money' },
     { header: 'Commission', key: 'commission', fmt: 'money' }, { header: 'Shipping est.', key: 'shipping', fmt: 'money' },
     { header: 'COGS', key: 'cogs', fmt: 'money' }, { header: 'Consignee payout', key: 'payout', fmt: 'money', width: 16 },
     { header: 'Net', key: 'net', fmt: 'money' }, { header: 'Consigned', key: 'consignedTxt', width: 10 },

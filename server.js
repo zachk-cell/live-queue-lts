@@ -380,8 +380,11 @@ app.post('/api/live/on', requireAuth, (_req, res) => {
   }
 });
 app.post('/api/live/off', requireAuth, (_req, res) => {
+  const endingStream = queue.live && queue.sessionStartedAt ? String(queue.sessionStartedAt) : null;
   queue.endLive();
   chat.stop().catch(() => {});
+  // Archive this stream's chat with its report and start the next stream clean.
+  if (endingStream) { const n = chat.archive(endingStream); console.log(`[chat] archived ${n} messages for stream ${endingStream}`); }
   res.json({ ok: true, live: false, reportId: (ledger.streamList().find((x) => x.endedAt) || {}).id || null });
 });
 
@@ -673,6 +676,15 @@ queue.on('change', () => {
 mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdminPage, isAuthed, ADMIN, SESSION_SECRET, dir: __dirname, panelNs });
 panelNs.on('connection', (socket) => socket.emit('chat-init', { status: chat.status(), messages: chat.recent(400) }));
 if (queue.live) setTimeout(() => chat.start().catch(() => {}), 5000).unref?.();
+// One-time tidy-up: chat left over from a stream that has already ended (before
+// End Live archived chat) goes into that stream's archive.
+else if (chat.buffer.length) {
+  const last = ledger.streamList().find((x) => x.endedAt);
+  const inIt = last ? chat.buffer.filter((m) => m.at >= last.startedAt - 3600000 && m.at <= last.endedAt + 600000).length : 0;
+  if (last && inIt >= chat.buffer.length / 2 && !LiveChat.archiveList().some((a) => a.id === String(last.id))) {
+    console.log(`[chat] archived ${chat.archive(last.id)} leftover messages to stream ${last.id}`);
+  }
+}
 
 // ---------- Integrations ----------
 if (discordEnabled()) {

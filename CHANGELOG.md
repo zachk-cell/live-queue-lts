@@ -2,6 +2,19 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 28, 2026 (morning) — Real numbers from TikTok, shipping report, chat archive
+- **Sales are counted before coupons.** A spot bought with a TikTok coupon now counts at its full price (e.g. $84.99), with "paid $0.01 · coupon $84.98" shown under it. TikTok pays those coupons back, so they no longer make sales look smaller. Seller-funded discounts are shown separately and do come off revenue. Older orders were updated from TikTok automatically.
+- **TikTok actuals:**
+  - the queue now pulls TikTok's real settlement for every order: revenue, fees, shipping label cost, refunds and the amount actually paid out
+  - reports and Sales metrics show them next to the estimates, e.g. "fees 6.9% actual vs 6% estimate"
+  - orders settle about a week after delivery, so recent streams fill in over time
+  - it runs every 4 hours, or on demand from ⚙ Settings → Sync settlements & refunds
+- **Refunds, disputes & cancellations:**
+  - refund-request %, refunded % and $, disputes (and how many TikTok decided for LTs) and cancellation % split by buyer / seller / system, plus top refund reasons
+  - orders show REFUND REQ / REFUNDED tags
+- **📦 Shipping report:** a money-free version of each after-action report for the shipping team. Buyers A–Z, order numbers, items, quantities, a tick box per order, items to pull, refund flags and the do-not-ship list. It's a link at the top of every report, and it prints to PDF.
+- **💬 Chat archive:** End Live now saves that stream's chat with its report (searchable via 💬 Chat log) and clears the chat box for the next stream. Last night's chat was filed under its stream automatically.
+
 ## November 28, 2026 — Chat fixed, searchable and redesigned
 - **Chat now connects and reads the feed.** Three fixes: the account name is read in lowercase (TikTok's lookup is case-sensitive), messages are read from the field the new chat reader uses, and the sender's @handle is read correctly so #1-buyer matching works.
 - **🔍 Search the chat:** search the whole stream's chat by words, display name or @handle, with matches highlighted. Click anyone's name to see all of their messages. The chat is kept on the server (several thousand messages), so a restart mid-stream doesn't lose it.
