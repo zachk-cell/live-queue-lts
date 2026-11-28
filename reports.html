@@ -103,7 +103,7 @@
 <body>
 <div class="bar">
   <h1>📋 After-Action Reports</h1>
-  <a href="{{ADMIN}}">← Queue</a>
+  <a href="{{ADMIN}}/backoffice" id="backlink">← Back office</a> <a href="{{ADMIN}}">Queue</a>
   <span class="sp"></span>
   <span id="actions"></span>
 </div>
@@ -122,7 +122,7 @@
 
   async function showList(){
     acts.innerHTML = '';
-    let d; try{ d = await (await fetch('/api/reports')).json(); }catch{ out.innerHTML='<div class="empty">Couldn\'t load reports.</div>'; return; }
+    let d; try{ const res = await fetch('/api/reports'); if(res.status===401) return showLocked(''); d = await res.json(); }catch{ out.innerHTML='<div class="empty">Couldn\'t load reports.</div>'; return; }
     TZ = d.tz || TZ;
     const rows = d.streams || [];
     out.innerHTML = `<div class="list"><h2>Past stream reports</h2>
@@ -136,9 +136,34 @@
       </tbody></table>` : '<div class="empty">No streams recorded yet. Your first report appears the moment you end a live.</div>'}</div>`;
   }
 
+  // Full reports (money) need the back-office password; shipping reports and
+  // chat logs only need the normal admin login.
+  function showLocked(hash){
+    acts.innerHTML = '';
+    out.innerHTML = `<div class="empty" style="padding:50px 20px">🔒 <b>After-action reports are in the back office</b> — they include sales, revenue and TikTok payouts.<br><br>
+      <a href="{{ADMIN}}/backoffice?next=${encodeURIComponent(hash||'#')}" style="font-weight:700">Unlock the back office →</a><br><br>
+      <span class="muted small">For the shipping team: <a href="#shipping">📦 Shipping reports</a> need no password.</span></div>`;
+  }
   async function loadReport(id){
-    try{ const res = await fetch('/api/reports/'+encodeURIComponent(id)); if(!res.ok) throw 0; return await res.json(); }
+    try{ const res = await fetch('/api/reports/'+encodeURIComponent(id)); if(res.status===401){ showLocked('#'+encodeURIComponent(id)); return null; } if(!res.ok) throw 0; return await res.json(); }
     catch{ out.innerHTML = '<div class="empty">Report not found. <a href="#">Back to all reports</a></div>'; return null; }
+  }
+  async function loadShipping(id){
+    try{ const res = await fetch('/api/shipping-reports/'+encodeURIComponent(id)); if(!res.ok) throw 0; return await res.json(); }
+    catch{ out.innerHTML = '<div class="empty">Report not found. <a href="#shipping">Back to shipping reports</a></div>'; return null; }
+  }
+  async function showShippingList(){
+    acts.innerHTML = '';
+    let d; try{ d = await (await fetch('/api/shipping-reports')).json(); }catch{ out.innerHTML='<div class="empty">Couldn\'t load reports.</div>'; return; }
+    TZ = d.tz || TZ;
+    const rows = d.streams || [];
+    out.innerHTML = `<div class="list"><h2>📦 Shipping reports</h2>
+      <p class="sub">One per stream — every buyer, order number and item to pack, with no money shown. Click one to open and print it.</p>
+      ${rows.length ? `<table><thead><tr><th>Stream</th><th>Time</th><th class="n">Orders</th><th class="n">Buyers</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr class="click" onclick="location.hash='${esc(r.id)}/shipping'"><td><b>${esc(dateLong(r.startedAt))}</b>${!r.endedAt?'<span class="tag">LIVE NOW</span>':''}</td>
+        <td class="muted">${esc(timeS(r.startedAt))} – ${r.endedAt?esc(timeS(r.endedAt)):'…'}</td><td class="n">${int(r.orders)}</td><td class="n">${int(r.buyers)}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">No streams yet.</div>'}</div>`;
+    document.title = 'Shipping Reports';
   }
   const header = (r, kind)=>`<div class="rh"><div><div class="k">${kind}</div><h2>${esc(dateLong(r.startedAt))}</h2>
         <div class="when">${esc(timeS(r.startedAt))} – ${r.endedAt?esc(timeS(r.endedAt)):'still live'} ${esc(fmt(r.startedAt,{timeZoneName:'short'}).split(' ').pop())} · ${dur(r.durationMs)} on air</div></div>
@@ -247,10 +272,10 @@
 
   // Shipping team version: orders, items and counts only — no money.
   async function showShipping(id){
-    const r = await loadReport(id); if(!r) return;
+    const r = await loadShipping(id); if(!r) return;
     TZ = r.tz || TZ;
     const enc = encodeURIComponent(id);
-    acts.innerHTML = `<a href="#${enc}">← Full report</a> <button class="primary" onclick="window.print()">⬇ Print / PDF</button>`;
+    acts.innerHTML = `<a href="#shipping">All shipping reports</a> <a href="#${enc}" title="Needs the back-office password">📋 Full report</a> <button class="primary" onclick="window.print()">⬇ Print / PDF</button>`;
     let orders = 0, units = 0, rows = '';
     const buyers = r.buyers.slice().sort((a,b)=>a.buyer.localeCompare(b.buyer));
     for(const b of buyers){
@@ -286,7 +311,7 @@
 
   // Saved chat for a stream (archived at End Live), searchable.
   async function showChat(id, q){
-    const r = await loadReport(id); if(!r) return;
+    const r = await loadShipping(id); if(!r) return;
     TZ = r.tz || TZ;
     const enc = encodeURIComponent(id);
     acts.innerHTML = `<a href="#${enc}">← Full report</a>`;
@@ -313,6 +338,7 @@
   function route(){
     const parts = location.hash.slice(1).split('/'); const id = decodeURIComponent(parts[0]||''); window.scrollTo(0,0);
     if(!id) return showList();
+    if(id==='shipping') return showShippingList();
     if(parts[1]==='shipping') return showShipping(id);
     if(parts[1]==='chat') return showChat(id, decodeURIComponent(parts.slice(2).join('/')||''));
     showReport(id);

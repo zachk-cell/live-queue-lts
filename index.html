@@ -414,7 +414,7 @@
 <header>
   <h1><span id="dot" class="dot"></span>LTs Workshop Queue <span id="liveBadge" class="livebadge">OFFLINE</span> <span id="ttStatus" class="ttbadge" style="display:none"></span> <span id="connDot" class="conn ok" title="Live feed connected">● Live feed</span></h1>
   <a href="/guide" target="_blank" class="hdr-link">📖 Guide ↗</a>
-  <a href="{{ADMIN}}/reports" class="hdr-link" title="After-action reports for every stream">📋 Reports</a>
+  <a href="{{ADMIN}}/reports#shipping" class="hdr-link" title="Per-stream packing lists for the shipping team (no money). Full after-action reports are in the 🔒 Back office.">📦 Shipping</a>
   <a href="{{ADMIN}}/backoffice" class="hdr-link" title="Inventory, cost, consignment, profitability, exports and sales metrics (separate password)">🔒 Back office</a>
   <a href="{{ADMIN}}/changelog" class="hdr-link" title="What changed in each update">✨ What's new</a>
   <a href="{{ADMIN}}/logout" class="hdr-link hdr-logout">Log out</a>
@@ -940,7 +940,7 @@
         : 'This archives this stream (fulfilled + cancelled) to Past streams and clears the board. New orders stop entering. You can review or export it anytime from Past streams.') + keepNote;
       if(!(await uiConfirm({title:'End the live?', body, confirmText:'End live', danger:true}))) return;
       let r = null; try { r = await (await fetch('/api/live/off',{method:'POST'})).json(); } catch {}
-      if(r && r.reportId && await uiConfirm({title:'Stream ended ✓', body:'Your after-action report for this stream is ready — every buyer, order, item and the sales / revenue breakdown (with consignment shown separately). Open it now?', confirmText:'📋 View report'})){
+      if(r && r.reportId && await uiConfirm({title:'Stream ended ✓', body:'This stream\'s reports are ready: the full after-action report (sales, revenue, TikTok actuals) in the 🔒 Back office, and a money-free shipping report for packing. Open the full report now?', confirmText:'📋 View report'})){
         location.href = '{{ADMIN}}/reports#' + encodeURIComponent(r.reportId);
       }
     }
@@ -1857,13 +1857,14 @@
     const el = document.getElementById('aar-card');
     const id = state.lastStreamId;
     // Only between streams: once a new live starts the banner gets out of the way
-    // (every report stays one click away under 📋 Reports in the header).
+    // (full reports: 🔒 Back office → 📋 Reports; packing lists: 📦 Shipping in the header).
     if(!id || (state.stats||{}).live){ el.style.display='none'; el._id=null; return; }
     if(el._id === id) return;
     el._id = id;
     const when = (()=>{ try { return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(Number(id))); } catch { return ''; } })();
     el.href = '{{ADMIN}}/reports#' + encodeURIComponent(id);
-    el.innerHTML = `<span style="font-size:20px">📋</span><span><div class="aart">View prior stream after-action report</div><div class="aars">${esc(when)} ET · buyers, orders, items, sales & revenue</div></span><span class="aargo">Open →</span>`;
+    el.innerHTML = `<span style="font-size:20px">📋</span><span><div class="aart">Prior stream reports</div><div class="aars">${esc(when)} ET · full report in the 🔒 back office · <span class="aarship" data-ship="${esc(id)}" style="text-decoration:underline;cursor:pointer">📦 shipping report</span></div></span><span class="aargo">Open →</span>`;
+    const sh = el.querySelector('.aarship'); if(sh) sh.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); location.href = '{{ADMIN}}/reports#' + encodeURIComponent(id) + '/shipping'; };
     el.style.display = 'flex';
   }
 

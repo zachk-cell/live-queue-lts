@@ -50,7 +50,31 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
 
   // ---------- After-action reports ----------
   app.get(ADMIN + '/reports', (req, res) => sendAdminPage(res, isAuthed(req) ? 'reports.html' : 'login.html'));
-  app.get('/api/reports', requireAuth, (_req, res) => {
+  // Money-free version for the shipping team (normal admin login is enough).
+  const shippingView = (s) => {
+    const r = streamReport(s, ledger.ordersForStream(s.id), ledger.bo.settings, termsOf);
+    return {
+      id: r.id, startedAt: r.startedAt, endedAt: r.endedAt, tz: r.tz, durationMs: r.durationMs,
+      buyers: r.buyers.map((b) => ({ buyer: b.buyer, handle: b.handle, orders: b.orders.map((o) => ({ id: o.id, refund: o.refund,
+        items: o.items.map((i) => ({ name: i.name, qty: i.qty })), cancelledItems: o.cancelledItems || [] })) })),
+      cancelled: r.cancelled.map((c) => ({ id: c.id, buyer: c.buyer, items: c.items })),
+      breaks: r.breaks.map((b) => ({ title: b.title, spots: b.spots, buyers: b.buyers, status: b.status })),
+    };
+  };
+  app.get('/api/shipping-reports', requireAuth, (_req, res) => {
+    res.json({ tz: ledger.bo.settings.timezone, streams: ledger.streamList().map((s) => {
+      const os = ledger.ordersForStream(s.id);
+      return { id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, orders: os.filter((o) => o.status !== 'cancelled').length,
+        buyers: new Set(os.filter((o) => o.status !== 'cancelled').map((o) => o.buyerId || o.buyer)).size };
+    }) });
+  });
+  app.get('/api/shipping-reports/:id', requireAuth, (req, res) => {
+    const s = ledger.streams[String(req.params.id)];
+    if (!s) return res.status(404).json({ error: 'stream not found' });
+    res.json(shippingView(s));
+  });
+  // Full reports (money) live in the back office: they need its password too.
+  app.get('/api/reports', requireAuth, requireBo, (_req, res) => {
     const list = ledger.streamList().map((s) => {
       const r = streamReport(s, ledger.ordersForStream(s.id), ledger.bo.settings, termsOf);
       return { id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, orders: r.totals.orders, buyers: r.totals.buyers,
@@ -59,12 +83,12 @@ export function mountBackoffice(app, { queue, ledger, chat, requireAuth, sendAdm
     });
     res.json({ streams: list, tz: ledger.bo.settings.timezone });
   });
-  app.get('/api/reports/:id', requireAuth, (req, res) => {
+  app.get('/api/reports/:id', requireAuth, requireBo, (req, res) => {
     const s = ledger.streams[String(req.params.id)];
     if (!s) return res.status(404).json({ error: 'stream not found' });
     res.json(streamReport(s, ledger.ordersForStream(s.id), ledger.bo.settings, termsOf));
   });
-  app.get('/api/reports/:id/xlsx', requireAuth, async (req, res) => {
+  app.get('/api/reports/:id/xlsx', requireAuth, requireBo, async (req, res) => {
     try {
       const out = await aarWorkbook(ledger, req.params.id);
       if (!out) return res.status(404).send('stream not found');

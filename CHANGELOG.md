@@ -2,6 +2,11 @@
 
 Every update to the queue is listed here, newest first: what changed and what it means for you.
 
+## November 28, 2026 (late morning) — Reports moved into the back office
+- **After-action reports now live in 🔒 Back office → 📋 Reports** and need the back-office password, because they include sales, revenue and TikTok payouts.
+- **The panel header has 📦 Shipping instead of 📋 Reports.** It lists every stream's money-free packing list and needs no extra password, so the shipping team can use it.
+- The between-streams box on the panel links to both the full report and the shipping report.
+
 ## November 28, 2026 (morning) — Real numbers from TikTok, shipping report, chat archive
 - **Sales are counted before coupons.** A spot bought with a TikTok coupon now counts at its full price (e.g. $84.99), with "paid $0.01 · coupon $84.98" shown under it. TikTok pays those coupons back, so they no longer make sales look smaller. Seller-funded discounts are shown separately and do come off revenue. Older orders were updated from TikTok automatically.
 - **TikTok actuals:**

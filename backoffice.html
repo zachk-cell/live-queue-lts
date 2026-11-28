@@ -104,8 +104,8 @@
 <header>
   <h1>🔒 Back office</h1>
   <a class="hl" href="{{ADMIN}}">← Queue</a>
-  <a class="hl" href="{{ADMIN}}/reports">📋 Reports</a>
   <div class="tabs" id="tabs" style="display:none">
+    <a class="tab" href="{{ADMIN}}/reports" style="text-decoration:none" title="After-action reports for every stream (sales, revenue, TikTok actuals)">📋 Reports</a>
     <button class="tab" data-t="inv">📦 Inventory & pricing</button>
     <button class="tab" data-t="profit">💵 Profit & exports</button>
     <button class="tab" data-t="metrics">📈 Sales metrics</button>
@@ -145,7 +145,14 @@ const fmtD = (ms, o={month:'short',day:'numeric',year:'numeric'})=> ms ? new Int
 async function boot(){
   const s = await (await fetch('/api/bo/status')).json().catch(()=>({}));
   if(!s.unlocked) return showLock(s.password);
+  if(goBack()) return;
   await load();
+}
+// Came here from a locked report (?next=#…): once unlocked, go straight back to it.
+function goBack(){
+  const back = new URLSearchParams(location.search).get('next');
+  if(back && /^#?[\w/%-]*$/.test(back)){ location.href = '{{ADMIN}}/reports' + (back.startsWith('#')?back:'#'+back); return true; }
+  return false;
 }
 function showLock(pwState){
   $('tabs').style.display='none'; $('lockBtn').style.display='none';
@@ -164,6 +171,7 @@ function showLock(pwState){
     if(setup){ if(pw !== $('pw2').value){ $('pwerr').textContent='The two passwords don\'t match.'; return; } }
     const r = await api(setup?'/api/bo/setup':'/api/bo/login', {password: pw}).catch(e=>({ok:false,error:e.message}));
     if(!r.ok){ $('pwerr').textContent = r.error || 'Could not unlock.'; return; }
+    if(goBack()) return;
     await load();
   };
   $('pwgo').onclick = go; $('pw').onkeydown = (e)=>{ if(e.key==='Enter') go(); };
@@ -177,7 +185,7 @@ async function load(){
   $('tabs').style.display='flex'; $('lockBtn').style.display='';
   render();
 }
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ TAB=b.dataset.t; location.hash=TAB; render(); });
+document.querySelectorAll('.tab[data-t]').forEach(b=>b.onclick=()=>{ TAB=b.dataset.t; location.hash=TAB; render(); });
 function render(){
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.t===TAB));
   ({inv:renderInv, profit:renderProfit, metrics:renderMetrics, log:renderLog, settings:renderSettings}[TAB] || renderInv)();
